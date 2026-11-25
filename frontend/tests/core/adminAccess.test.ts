@@ -81,5 +81,5 @@ void test('storage operators enter the admin console through their existing AI p
     visibleAdminNavigation(user).map((entry) => entry.path),
     ['/admin/storage']
   )
-  assert.equal(hasAdminPermission(user, 'configs'), false)
+  assert.equal(hasAdminPermission(user, 'notice_settings'), false)
 })

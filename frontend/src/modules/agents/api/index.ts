@@ -1,4 +1,4 @@
-import { http } from '../../../shared/http.ts'
+import { decodeVoid, http } from '../../../shared/http.ts'
 import { list, number, object, string } from '../../../shared/validation.ts'
 import { parseRunAdmission } from '../../knowledge/public.ts'
 import { selectPreviewMessages } from '../history.ts'
@@ -20,6 +20,8 @@ export interface Agent extends AgentConfig {
   agentId: string
   ownerId: string
   version: number
+  plazaVersion?: number | null
+  plazaDepartmentId?: string | null
   status: 'disabled' | 'enabled'
   updatedAt?: string
 }
@@ -61,6 +63,8 @@ function parseAgent(value: unknown): Agent {
     agentId: string(data.id),
     ownerId: string(data.owner_id),
     version: number(data.version),
+    plazaVersion: data.plaza_version == null ? null : number(data.plaza_version),
+    plazaDepartmentId: data.plaza_department_id == null ? null : string(data.plaza_department_id),
     status: data.status,
     ...(data.updated_at === undefined ? {} : { updatedAt: string(data.updated_at) })
   }
@@ -105,6 +109,70 @@ export const listAgents = (
   )
 export const getAgent = (id: string, signal: AbortSignal) =>
   http.request(path(id), { signal, decode: parseAgent })
+
+export interface PlazaAssistant {
+  agentId: string
+  name: string
+  description: string
+  welcomeMessage: string
+  plazaVersion?: number | null
+  canStart?: boolean
+}
+
+function parsePlazaAssistant(value: unknown): PlazaAssistant {
+  const data = object(value)
+  return {
+    agentId: string(data.id),
+    name: string(data.name),
+    description: string(data.description),
+    welcomeMessage: string(data.welcome_message),
+    plazaVersion: data.plaza_version == null ? null : number(data.plaza_version),
+    canStart: data.can_start !== false
+  }
+}
+
+export const listPlazaAssistants = (
+  query: { keyword: string; page: number; pageSize: number },
+  signal: AbortSignal
+) =>
+  http.request(
+    `/agents/plaza?${new URLSearchParams({ search: query.keyword, page: String(query.page), page_size: String(query.pageSize) })}`,
+    {
+      signal,
+      decode: (value) => {
+        const data = object(value)
+        return { rows: list(parsePlazaAssistant)(data.items), total: number(data.total) }
+      }
+    }
+  )
+export const getPlazaAssistant = (id: string, signal: AbortSignal) =>
+  http.request(`/agents/plaza/${encodeURIComponent(id)}`, { signal, decode: parsePlazaAssistant })
+export const listPlazaDepartments = (signal: AbortSignal) =>
+  http.request('/agents/plaza/departments', {
+    signal,
+    decode: list((value) => {
+      const data = object(value)
+      return { id: string(data.id), name: string(data.name) }
+    })
+  })
+export const publishAssistant = (
+  agent: Agent,
+  scope: { department_id: string | null; allow_knowledge: boolean },
+  signal: AbortSignal
+) =>
+  http.request(`${path(agent.agentId)}/plaza`, {
+    method: 'PUT',
+    body: { expected_version: agent.version, ...scope },
+    signal,
+    decode: parseAgent
+  })
+export const unpublishAssistant = (agentId: string, version: number, signal: AbortSignal) =>
+  http.request(`${path(agentId)}/plaza`, {
+    method: 'DELETE',
+    body: { expected_version: version },
+    signal,
+    decode: decodeVoid
+  })
 export const createAgent = (body: AgentPayload, signal: AbortSignal) =>
   http.request('/agents', { method: 'POST', body, signal, decode: parseAgent })
 export const updateAgent = (

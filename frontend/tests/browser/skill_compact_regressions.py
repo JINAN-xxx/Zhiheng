@@ -173,7 +173,7 @@ class CompactSkills(DeveloperBoundary):
         try:
             await self.page.goto(self.origin + '/models')
             await self.page.get_by_role('link', name='技能', exact=True).click()
-            await self.page.get_by_role('tab', name='我的', exact=True).click()
+            await self.page.get_by_role('tab', name='我的技能', exact=True).click()
             await expect(self.page.locator('.skill-item')).to_have_count(2)
             await self.row().get_by_role('switch').click()
             await asyncio.wait_for(requested.wait(), timeout=10)

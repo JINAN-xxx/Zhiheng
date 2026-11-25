@@ -4,10 +4,11 @@ from datetime import datetime, timedelta
 from typing import Literal, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, delete, func, literal, or_, select, text
+from sqlalchemy import DateTime, and_, delete, func, literal, or_, select, text
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Load
+from sqlalchemy.sql.elements import ColumnElement
 
 from zhiheng.modules.skills.contracts import (
     DraftInfo,
@@ -15,18 +16,18 @@ from zhiheng.modules.skills.contracts import (
     RevisionContent,
     RevisionInfo,
     SkillAccess,
+    SkillCatalog,
     SkillConfirmation,
     SkillImportAction,
     SkillInfo,
     SkillPage,
     SkillRevisionValue,
     SkillSelection,
-    SkillSource,
     SkillStatus,
 )
 from zhiheng.modules.skills.orm import Skill, SkillDraft, SkillLegacyBinding, SkillRevision
 from zhiheng.modules.skills.package import ParsedSkillPackage, SkillPackageParser
-from zhiheng.modules.skills.validation import is_valid_slug, validate_search
+from zhiheng.modules.skills.validation import is_valid_slug, platform_skill_id, platform_skill_slug, validate_search
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.principal import Principal
@@ -53,9 +54,13 @@ def revision_columns(*, content: bool = False) -> Load:
     return Load(SkillRevision).load_only(*columns, *([SkillRevision.content] if content else []), raiseload=True)
 
 
+def _published_skill() -> ColumnElement[bool]:
+    return and_(Skill.platform_revision_id == SkillRevision.id, Skill.deleted_at.is_(None))
+
+
 class SkillService:
-    async def initialize_owner(self, session: AsyncSession, owner_id: UUID) -> None:
-        """Copy immutable builtin templates during account creation, in its transaction."""
+    async def initialize_admin_library(self, session: AsyncSession, owner_id: UUID) -> None:
+        """Install the archived templates as unpublished personal skills."""
         templates = (
             await session.execute(
                 select(Skill, SkillRevision)
@@ -68,7 +73,7 @@ class SkillService:
             await self._lock_slug(session, owner_id, template.slug)
             if await session.scalar(select(Skill.id).where(Skill.owner_id == owner_id, Skill.slug == template.slug)):
                 continue
-            personal = Skill(owner_id=owner_id, slug=template.slug, source='builtin', revision_id=uuid4())
+            personal = Skill(owner_id=owner_id, slug=template.slug, revision_id=uuid4())
             session.add(personal)
             await session.flush()
             session.add(
@@ -125,6 +130,8 @@ class SkillService:
             raise AppError('invalid_skill_package', '技能包文件名无效', 422)
         if parsed is None:
             parsed = await SkillPackageParser().parse_async(payload, filename=filename)
+        if platform_skill_id(parsed.slug) is not None:
+            raise AppError('reserved_skill_slug', '该技能标识由平台保留', 422)
         await self._lock_slug(session, principal.id, parsed.slug)
         skill = await session.scalar(
             select(Skill).where(Skill.owner_id == principal.id, Skill.slug == parsed.slug).with_for_update(read=True)
@@ -324,19 +331,30 @@ class SkillService:
         page_size: int = 20,
         search: str = '',
         status: SkillStatus | None = None,
-        source: SkillSource | None = None,
+        source: SkillCatalog | None = None,
     ) -> SkillPage:
         validate_search(search)
+        platform = source == 'platform'
+        if source == 'builtin' or (platform and status == 'disabled'):
+            return SkillPage(items=[], total=0, page=page, page_size=page_size)
+        selection = (
+            _published_skill()
+            if platform
+            else and_(
+                Skill.owner_id == owner_id,
+                Skill.deleted_at.is_(None),
+                Skill.revision_id == SkillRevision.id,
+                Skill.source == 'upload',
+            )
+        )
+        if not platform and status is not None:
+            selection = and_(selection, Skill.status == status)
         query = (
             select(Skill, SkillRevision)
-            .join(SkillRevision, Skill.revision_id == SkillRevision.id)
-            .where(Skill.owner_id == owner_id, Skill.deleted_at.is_(None))
+            .join(SkillRevision, SkillRevision.skill_id == Skill.id)
+            .where(selection)
             .options(revision_columns())
         )
-        if source is not None:
-            query = query.where(Skill.source == source)
-        if status is not None:
-            query = query.where(Skill.status == status)
         if search:
             pattern = '%' + search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
             query = query.where(
@@ -347,9 +365,14 @@ class SkillService:
                 )
             )
         total = await session.scalar(select(func.count()).select_from(query.with_only_columns(Skill.id).subquery()))
-        rows = (await session.execute(query.order_by(Skill.slug).offset((page - 1) * page_size).limit(page_size))).all()
+        rows = (
+            await session.execute(query.order_by(Skill.slug, Skill.id).offset((page - 1) * page_size).limit(page_size))
+        ).all()
         return SkillPage(
-            items=[self._info(skill, revision) for skill, revision in rows],
+            items=[
+                self._catalog_info(skill, revision) if platform else self._info(skill, revision)
+                for skill, revision in rows
+            ],
             total=total or 0,
             page=page,
             page_size=page_size,
@@ -378,7 +401,62 @@ class SkillService:
                 .order_by(Skill.slug)
             )
         ).all()
-        return [self._info(skill, revision) for skill, revision in rows]
+        published = (
+            await session.execute(
+                select(Skill, SkillRevision)
+                .join(SkillRevision, SkillRevision.id == Skill.platform_revision_id)
+                .where(Skill.deleted_at.is_(None))
+                .options(revision_columns())
+                .order_by(Skill.slug, Skill.id)
+            )
+        ).all()
+        return [self._info(skill, revision) for skill, revision in rows] + [
+            self._catalog_info(skill, revision) for skill, revision in published
+        ]
+
+    @classmethod
+    def _catalog_info(cls, skill: Skill, revision: SkillRevision) -> SkillInfo:
+        info = cls._info(skill, revision)
+        if skill.source == 'upload' and revision.id == skill.platform_revision_id:
+            return info.model_copy(
+                update={'slug': platform_skill_slug(skill.id), 'source': 'platform', 'status': 'enabled'}
+            )
+        return info
+
+    async def publish_platform(
+        self, session: AsyncSession, principal: Principal, skill_id: UUID, expected_version: int
+    ) -> SkillInfo:
+        require_capability(principal, 'skills', 'platform_publish')
+        skill, revision = await self._row(session, principal.id, skill_id, lock=True, content=True)
+        if skill.version != expected_version:
+            raise AppError('skill_version_conflict', '技能已更新，请刷新后重试', 409)
+        if skill.source != 'upload' or skill.status != 'enabled' or revision.file_count != 1:
+            raise AppError('platform_skill_package', '只能发布已启用且仅包含 SKILL.md 的个人技能', 422)
+        if len(revision.content.encode()) > MAX_SELECTION_BYTES:
+            raise AppError('skill_context_too_long', '技能主文件超过32KiB', 422)
+        skill.platform_revision_id = revision.id
+        skill.version += 1
+        skill.updated_at = utcnow()
+        await session.flush()
+        return self._info(skill, revision)
+
+    async def withdraw_platform(
+        self, session: AsyncSession, principal: Principal, skill_id: UUID, expected_revision_id: UUID
+    ) -> None:
+        require_capability(principal, 'skills', 'platform_publish')
+        query = select(Skill).where(
+            Skill.id == skill_id, Skill.deleted_at.is_(None), Skill.platform_revision_id.is_not(None)
+        )
+        if not principal.is_admin:
+            query = query.where(Skill.owner_id == principal.id)
+        skill = await session.scalar(query.with_for_update().execution_options(populate_existing=True))
+        if skill is None:
+            raise AppError('skill_unavailable', '平台技能已下架', 404)
+        if skill.platform_revision_id != expected_revision_id:
+            raise AppError('skill_version_conflict', '技能已更新，请刷新后重试', 409)
+        skill.platform_revision_id = None
+        skill.version += 1
+        skill.updated_at = utcnow()
 
     async def _row(
         self,
@@ -565,7 +643,8 @@ class SkillService:
         if hashlib.sha256(row.package_bytes).hexdigest() != row.package_sha:
             raise AppError('skill_package_integrity_error', '技能包完整性校验失败，请重新上传', 422)
         parsed = await SkillPackageParser().parse_async(row.package_bytes, filename=row.filename)
-        if parsed.slug != value.slug or parsed.content_hash != value.content_hash or parsed.content != value.content:
+        same_identity = platform_skill_id(value.slug) == value.skill_id or parsed.slug == value.slug
+        if not same_identity or parsed.content_hash != value.content_hash or parsed.content != value.content:
             raise AppError('skill_package_integrity_error', '技能包与所选版本不一致，请重新上传', 422)
         return parsed
 
@@ -600,6 +679,8 @@ class SkillService:
         skill, revision = await self._row(session, principal.id, skill_id, lock=True)
         if skill.source == 'builtin':
             raise AppError('builtin_skill_protected', '市场预制技能不能删除，可通过启用开关控制使用', 403)
+        if skill.platform_revision_id is not None:
+            raise AppError('platform_skill_published', '请先下架平台技能', 409)
         if await reference_check(session, skill.slug):
             raise AppError('skill_referenced', '技能仍有有效引用或进行中的调用', 409)
         skill.deleted_at = skill.updated_at = utcnow()
@@ -638,6 +719,7 @@ class SkillService:
             total_bytes=revision.total_bytes,
             created_at=skill.created_at,
             updated_at=skill.updated_at,
+            platform_revision_id=skill.platform_revision_id,
         )
 
 
@@ -669,16 +751,7 @@ async def require_available_set(session: AsyncSession, owner_id: UUID, slugs: Se
         raise AppError('invalid_skill_selection', '技能标识格式无效', 422)
     if not unique:
         return
-    ids = await session.scalars(
-        select(Skill.id)
-        .where(
-            Skill.owner_id == owner_id, Skill.slug.in_(unique), Skill.deleted_at.is_(None), Skill.status == 'enabled'
-        )
-        .order_by(Skill.slug)
-        .with_for_update(read=True)
-    )
-    if len(ids.all()) != len(unique):
-        raise AppError('skill_unavailable', '所选技能不存在或已停用', 422)
+    await _skill_selection_rows(session, owner_id, unique, content=False)
 
 
 async def require_available_groups(session: AsyncSession, groups: dict[UUID, set[str]]) -> None:
@@ -691,47 +764,74 @@ async def resolve_selection(session: AsyncSession, owner_id: UUID, slugs: Sequen
     _validate_slugs(slugs)
     if not slugs:
         return SkillSelection()
-    rows = (
-        await session.execute(
-            select(Skill, SkillRevision)
-            .join(SkillRevision, Skill.revision_id == SkillRevision.id)
-            .options(revision_columns(content=True))
-            .where(
-                Skill.owner_id == owner_id, Skill.slug.in_(slugs), Skill.deleted_at.is_(None), Skill.status == 'enabled'
-            )
-            .order_by(Skill.slug)
-            .with_for_update(read=True, of=Skill)
-        )
-    ).all()
-    by_slug = {skill.slug: (skill, revision) for skill, revision in rows}
-    if len(by_slug) != len(slugs):
-        raise AppError('skill_unavailable', '所选技能不存在或已停用', 422)
+    by_slug = await _skill_selection_rows(session, owner_id, slugs, content=True)
     values = tuple(
-        SkillRevisionValue(skill.id, revision.id, skill.slug, revision.name, revision.content_hash, revision.content)
-        for skill, revision in (by_slug[slug] for slug in slugs)
+        SkillRevisionValue(skill.id, revision.id, slug, revision.name, revision.content_hash, revision.content)
+        for slug in slugs
+        for skill, revision in (by_slug[slug],)
     )
     if sum(len(value.content.encode()) for value in values) > MAX_SELECTION_BYTES:
         raise AppError('skill_context_too_long', '所选技能主文件合计超过32KiB', 422)
     return SkillSelection(values)
 
 
+async def _skill_selection_rows(
+    session: AsyncSession, owner_id: UUID, slugs: Sequence[str], *, content: bool
+) -> dict[str, tuple[Skill, SkillRevision]]:
+    platform_ids = {identifier for slug in slugs if (identifier := platform_skill_id(slug)) is not None}
+    personal = {slug for slug in slugs if platform_skill_id(slug) is None}
+    rows = (
+        await session.execute(
+            select(Skill, SkillRevision)
+            .join(SkillRevision, SkillRevision.skill_id == Skill.id)
+            .options(revision_columns(content=content))
+            .where(
+                Skill.deleted_at.is_(None),
+                or_(
+                    and_(
+                        Skill.owner_id == owner_id,
+                        Skill.slug.in_(personal),
+                        Skill.status == 'enabled',
+                        Skill.revision_id == SkillRevision.id,
+                    ),
+                    and_(Skill.id.in_(platform_ids), Skill.platform_revision_id == SkillRevision.id),
+                ),
+            )
+            .order_by(Skill.slug, Skill.id)
+            .with_for_update(read=True, of=Skill)
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    by_slug = {}
+    for skill, revision in rows:
+        if skill.id in platform_ids and skill.platform_revision_id == revision.id:
+            by_slug[platform_skill_slug(skill.id)] = (skill, revision)
+        if (
+            skill.owner_id == owner_id
+            and skill.slug in personal
+            and skill.status == 'enabled'
+            and skill.revision_id == revision.id
+        ):
+            by_slug[skill.slug] = (skill, revision)
+    if len(by_slug) != len(slugs):
+        raise AppError('skill_unavailable', '所选技能不存在或已停用', 422)
+    return by_slug
+
+
 async def require_frozen_available(session: AsyncSession, owner_id: UUID, selection: SkillSelection) -> None:
     """Check the actual frozen identity/revision, including explicitly bound legacy archives."""
     _validate_slugs([value.slug for value in selection.revisions])
     for value in sorted(selection.revisions, key=lambda item: item.slug):
-        legacy = await session.get(SkillLegacyBinding, (owner_id, value.skill_id))
-        personal_id = legacy.personal_skill_id if legacy else value.skill_id
-        skill = await session.scalar(
-            select(Skill)
-            .where(
-                Skill.id == personal_id,
-                Skill.owner_id == owner_id,
-                Skill.slug == value.slug,
-                Skill.deleted_at.is_(None),
-                Skill.status == 'enabled',
+        target = select(Skill).where(Skill.deleted_at.is_(None))
+        if platform_skill_id(value.slug) == value.skill_id:
+            target = target.where(Skill.id == value.skill_id, Skill.platform_revision_id.is_not(None))
+        else:
+            legacy = await session.get(SkillLegacyBinding, (owner_id, value.skill_id))
+            personal_id = legacy.personal_skill_id if legacy else value.skill_id
+            target = target.where(
+                Skill.id == personal_id, Skill.owner_id == owner_id, Skill.slug == value.slug, Skill.status == 'enabled'
             )
-            .with_for_update(read=True)
-        )
+        skill = await session.scalar(target.with_for_update(read=True).execution_options(populate_existing=True))
         revision = await session.get(SkillRevision, value.revision_id, options=(revision_columns(content=True),))
         if (
             skill is None

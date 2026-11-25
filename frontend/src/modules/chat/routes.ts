@@ -11,6 +11,6 @@ export const chatRoutes: RouteRecordRaw[] = [
     alias: '/ai/chat',
     name: 'chat',
     component: () => import('./views/ChatView.vue'),
-    meta: { title: '对话体验', navigation: true }
+    meta: { title: '对话体验', navigation: true, conversationLayout: true }
   }
 ]

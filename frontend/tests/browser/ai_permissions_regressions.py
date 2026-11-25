@@ -209,7 +209,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
         self.assertTrue(any(method == 'PATCH' and path.endswith('/status') for method, path, _ in self.requests))
 
     async def test_storage_writer_can_open_new_and_legacy_paths_without_system_admin_access(self):
-        self.permissions = granted_permissions('ai:storage:configure', 'ai:storage:maintain', 'ai:storage:acl', 'ai:storage:transfer', 'ai:storage:delete', 'ai:storage:parse')
+        self.permissions = granted_permissions('ai:storage:configure', 'ai:storage:maintain', 'ai:storage:acl', 'ai:storage:transfer', 'ai:storage:delete')
         for path in ['/knowledge/storage', '/files', '/system/file']:
             with self.subTest(path=path):
                 await self.page.goto(self.origin + path)
@@ -221,7 +221,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
         await expect(self.page.get_by_role('button', name='开始检查', exact=True)).to_be_visible()
 
     async def test_storage_writer_cannot_manage_another_owners_visible_file(self):
-        self.permissions = granted_permissions('ai:storage:configure', 'ai:storage:maintain', 'ai:storage:acl', 'ai:storage:transfer', 'ai:storage:delete', 'ai:storage:parse')
+        self.permissions = granted_permissions('ai:storage:configure', 'ai:storage:maintain', 'ai:storage:acl', 'ai:storage:transfer', 'ai:storage:delete')
         self.file_rows = [{**FILE, 'owner_id': 'another-user', 'access': 'public'}]
         await self.page.goto(self.origin + '/knowledge/storage')
         await expect(self.page.get_by_role('button', name='查看文件：业务报告', exact=True)).to_be_visible()

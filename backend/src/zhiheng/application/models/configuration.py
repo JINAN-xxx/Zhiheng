@@ -56,13 +56,17 @@ class ModelConfigurationService:
         )
         async with self.database.sessions() as session:
             provider = await self.models.bindings.provider(session, binding)
-        has_text = finished = False
+
+        async def completed() -> bool:
+            has_text = finished = False
+            async for delta in provider.stream((ModelMessage('user', 'Reply with OK only.'),)):
+                has_text |= bool(delta.text.strip())
+                finished |= delta.finish_reason in {'stop', 'length'}
+            return has_text and finished
+
         try:
-            async with asyncio.timeout(PROBE_TIMEOUT_SECONDS):
-                async for delta in provider.stream((ModelMessage('user', 'Reply with OK only.'),)):
-                    has_text |= bool(delta.text.strip())
-                    finished |= delta.finish_reason in {'stop', 'length'}
-        except TimeoutError as error:
+            valid = await asyncio.wait_for(completed(), timeout=PROBE_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError as error:
             raise AppError('model_validation_timeout', '模型试调用超时，请稍后重试', 504) from error
-        if not has_text or not finished:
+        if not valid:
             raise AppError('model_validation_probe_failed', '模型试调用未返回有效回复，无法确认模型可用', 502)

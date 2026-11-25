@@ -7,6 +7,22 @@ from pydantic import BaseModel, Field
 
 RunStatus = Literal['pending', 'running', 'cancel_requested', 'completed', 'failed', 'cancelled', 'interrupted']
 TERMINAL_STATUSES = frozenset({'completed', 'failed', 'cancelled', 'interrupted'})
+RunResourceType = Literal[
+    'chat',
+    'chat_summary',
+    'connection_test',
+    'public',
+    'agent_preview',
+    'agent_chat',
+    'agent_summary',
+    'agent_invocation',
+    'work_turn',
+    'work_agent',
+    'work_agent_model',
+    'knowledge_embedding',
+    'knowledge_rerank',
+    'knowledge_graph',
+]
 
 
 @dataclass(frozen=True)
@@ -43,22 +59,7 @@ class RunFacts(BaseModel):
 
 class RunSnapshot(BaseModel):
     id: UUID
-    resource_type: Literal[
-        'chat',
-        'chat_summary',
-        'connection_test',
-        'public',
-        'agent_preview',
-        'agent_chat',
-        'agent_summary',
-        'agent_invocation',
-        'work_turn',
-        'work_agent',
-        'work_agent_model',
-        'knowledge_embedding',
-        'knowledge_rerank',
-        'knowledge_graph',
-    ]
+    resource_type: RunResourceType
     resource_id: UUID
     status: RunStatus
     attempt_id: UUID | None

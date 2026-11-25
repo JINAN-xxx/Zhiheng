@@ -23,6 +23,7 @@ declare module 'vue-router' {
     console?: boolean
     permission?: string
     reuseByParam?: string
+    conversationLayout?: boolean
   }
 }
 export const router = createRouter({

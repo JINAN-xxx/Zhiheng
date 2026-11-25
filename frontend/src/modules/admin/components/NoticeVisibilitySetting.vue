@@ -7,13 +7,13 @@ import { hasAdminPermission } from '../access.ts'
 import { createEntity, updateEntity, decodeConfig, getAllCollection } from '../api/index.ts'
 import type { Config } from '../api/index.ts'
 import { ApiError, RequestScope, errorMessage, isAborted } from '../../../shared/http.ts'
-const readable = computed(() => hasAdminPermission(identity.value, 'configs'))
+const readable = computed(() => hasAdminPermission(identity.value, 'notice_settings'))
 const writable = computed(
   () =>
-    hasAdminPermission(identity.value, 'configs', current.value ? 'update' : 'create') &&
+    hasAdminPermission(identity.value, 'notice_settings', current.value ? 'update' : 'create') &&
     (!current.value ||
       current.value.is_active ||
-      hasAdminPermission(identity.value, 'configs', 'toggle'))
+      hasAdminPermission(identity.value, 'notice_settings', 'toggle'))
 )
 const readCache = inject(adminReadCacheKey, null)
 const restoredSetting = readCache?.getResource<Config | null>('notice-visibility')

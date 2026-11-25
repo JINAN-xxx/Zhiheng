@@ -545,10 +545,16 @@ class WorkRunService:
         return await self.runs.resource_snapshot(session, run_id, 'work_turn', task_id) if run_id else None
 
     async def release_knowledge(self, session: AsyncSession, state: RetrievalState) -> None:
+        version = state.dependencies.get('task_version')
+        if type(version) is not int or version < 1:
+            admission = state.request.get('admission_body')
+            version = admission.get('expected_version') if isinstance(admission, dict) else None
+        if type(version) is not int or version < 1:
+            # Terminal intent is the busy-state authority. Without the reserved
+            # version, do not advance an unrelated or newer Work task version.
+            return
         principal = Principal(state.owner_id, '', False)
-        await self.work.release_preparation(
-            session, principal, state.resource_id, int(state.dependencies['task_version'])
-        )
+        await self.work.release_preparation(session, principal, state.resource_id, version)
 
     async def remove(self, session: AsyncSession, principal: Principal, task_id: UUID, expected_version: int) -> None:
         await self.work.require(session, principal, task_id, lock=True)

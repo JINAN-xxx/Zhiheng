@@ -1,23 +1,39 @@
 """Transport durable deliveries without taking an execution slot."""
 
+import logging
+
 from arq.connections import ArqRedis
 
 from zhiheng.application.execution.dispatch import MODEL_TYPE_PATH, execution_lane
+from zhiheng.application.execution.run_policy import run_policy
 from zhiheng.bootstrap.container import Container
+from zhiheng.shared.errors import AppError
+
+logger = logging.getLogger(__name__)
 
 
 async def publish_outbox(container: Container, queue: ArqRedis) -> None:
     async with container.database.sessions() as session:
         pending = await container.outbox.pending(session, payload_path=MODEL_TYPE_PATH)
     for delivery in pending:
+        try:
+            policy = run_policy(delivery.resource_type)
+        except AppError as error:
+            if error.code != 'execution_resource_unsupported':
+                raise
+            logger.warning('Deferred unsupported outbox delivery run_id=%s', delivery.run_id)
+            async with container.database.sessions.begin() as session:
+                await container.outbox.defer(session, delivery.id)
+            continue
+        lane = execution_lane(delivery.hint) if policy.lane == 'by_model' else policy.lane
         queue_name = (
             container.settings.worker_workspace_queue
-            if delivery.resource_type == 'work_agent'
+            if lane == 'workspace'
             else container.settings.worker_short_queue
-            if delivery.resource_type in {'chat_summary', 'agent_summary'} or execution_lane(delivery.hint) == 'short'
+            if lane == 'short'
             else container.settings.worker_queue
         )
-        function = 'execute_workspace' if delivery.resource_type == 'work_agent' else 'execute_chat'
+        function = 'execute_workspace' if lane == 'workspace' else 'execute_chat'
         await queue.enqueue_job(function, str(delivery.run_id), _job_id=str(delivery.id), _queue_name=queue_name)
         async with container.database.sessions.begin() as session:
             await container.outbox.mark_sent(session, delivery.id)

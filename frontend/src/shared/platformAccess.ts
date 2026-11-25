@@ -10,6 +10,7 @@ export const platformModules = [
   { id: 'models', label: '模型目录', path: '/models' },
   { id: 'credentials', label: '凭据管理', path: '/credentials' },
   { id: 'knowledge', label: '知识库', path: '/knowledge' },
+  { id: 'knowledge_settings', label: '知识库默认配置', path: '/knowledge/settings' },
   { id: 'skills', label: '技能', path: '/skills' },
   { id: 'developer', label: '开发接入', path: '/developer' },
   { id: 'usage', label: '用量与调用', path: '/usage' }
@@ -55,8 +56,8 @@ export function moduleForPath(path: string): PlatformModule | null {
   )
   if (alias) path = alias[1] + path.slice(alias[0].length)
   return (
-    platformModules.find((module) => path === module.path || path.startsWith(module.path + '/'))
-      ?.id ?? null
+    (platformModules.find((module) => path === module.path) ??
+      platformModules.find((module) => path.startsWith(module.path + '/')))?.id ?? null
   )
 }
 export function firstModulePath(user: PlatformIdentity | null | undefined): string {

@@ -2,12 +2,12 @@ from typing import Annotated
 from urllib.parse import unquote_to_bytes
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from zhiheng.api.common.contracts import EmptyRequest
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
-from zhiheng.modules.skills.public import DraftInfo, SkillInfo, SkillPage, SkillSource, SkillStatus
+from zhiheng.modules.skills.public import DraftInfo, SkillCatalog, SkillInfo, SkillPage, SkillStatus
 from zhiheng.shared.errors import AppError
 
 router = APIRouter(prefix='/api/skills', tags=['skills'])
@@ -24,6 +24,16 @@ class ContentInfo(BaseModel):
     content: str
 
 
+class PublishRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    expected_version: int = Field(strict=True, ge=1)
+
+
+class WithdrawRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    expected_revision_id: UUID
+
+
 @router.get('')
 async def skills(
     request: Request,
@@ -34,7 +44,7 @@ async def skills(
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     search: Annotated[str, Query(max_length=500)] = '',
     status: SkillStatus | None = None,
-    source: SkillSource | None = None,
+    source: SkillCatalog | None = None,
 ) -> SkillPage:
     # QueryParams uses replacement decoding; reject invalid original search bytes first.
     for parameter in request.scope['query_string'].split(b'&'):
@@ -93,6 +103,38 @@ async def content(
     skill_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> ContentInfo:
     return ContentInfo(content=await container.skills.content(session, principal.id, skill_id))
+
+
+@router.put('/{skill_id}/platform')
+async def publish_platform(
+    skill_id: UUID,
+    body: PublishRequest,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> SkillInfo:
+    async with session.begin():
+        result = await container.skills.publish_platform(session, principal, skill_id, body.expected_version)
+        await container.operations.record(
+            session, principal=principal, action='skill.platform.publish', resource_type='skill', resource_id=str(skill_id)
+        )
+        return result
+
+
+@router.delete('/{skill_id}/platform', status_code=204)
+async def withdraw_platform(
+    skill_id: UUID,
+    body: WithdrawRequest,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> Response:
+    async with session.begin():
+        await container.skills.withdraw_platform(session, principal, skill_id, body.expected_revision_id)
+        await container.operations.record(
+            session, principal=principal, action='skill.platform.withdraw', resource_type='skill', resource_id=str(skill_id)
+        )
+    return Response(status_code=204)
 
 
 @router.patch('/{skill_id}/status')

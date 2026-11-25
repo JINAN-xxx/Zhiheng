@@ -51,7 +51,7 @@ curl --fail-with-body "$ORIGIN/api/v1/files" \
 - `Authorization: Bearer …`，资源不回退到 Cookie；HTTP Bearer 的操作能力使用规范中的 `x-required-scopes`，不伪装成 OAuth。Operation 读取根据原生 kind 要求 `knowledge:read` 或 `knowledge:query`。
 - multipart 只接受一个二进制 `file` 与一个 `purpose`；原文件最多 20 MiB，技能包还受 10 MiB/解压 30 MiB、200 文件及主文件 128 KiB 等原领域限制。普通 JSON 请求限额独立。
 - 资源创建、导入、确认、检索及相关异步操作的 `Idempotency-Key` 可选，提供时须为单个 UUID；空值、非法值或重复头返回 422。省略时服务端为每次 HTTP 请求生成内部键，按新提交处理，不保证跨请求去重；相同内容也不会自动合并。原生状态、权限和版本约束仍会限制提交。可靠重试需显式提供并复用原键。相同应用/操作/键和内容返回原结果，内容变化为 409。请求身份永久保留，响应快照 24 小时；过期重放返回 409 及当前允许的原结果引用，不重新执行。Operation GET 无此 24 小时窗口，仍复核当前 Scope、应用与 ACL。
-- 列表为 `items/next_cursor/has_more`，默认 20、最多 100；游标绑定应用和过滤条件。可变资源修改发送强版本 `ETag` 作为 `If-Match`，缺少为 428、陈旧为 412。资源文件元数据、内容下载（含 Range）和变更响应使用相同的 `"file-{version}"` 状态版本；技能不可变原包下载的 ETag 则为内容 SHA256，不能作为技能状态版本；领域引用、幂等和在途冲突为 409。
+- 列表为 `items/next_cursor/has_more`，默认 20、最多 100；游标绑定应用和过滤条件。文件列表在复核期间跳过失去访问权限的文件，可能返回不足一页或空页。只要 `has_more` 为真，就使用返回的 `next_cursor` 继续读取。可变资源修改发送强版本 `ETag` 作为 `If-Match`，缺少为 428、陈旧为 412。资源文件元数据、内容下载（含 Range）和变更响应使用相同的 `"file-{version}"` 状态版本；技能不可变原包下载的 ETag 则为内容 SHA256，不能作为技能状态版本；领域引用、幂等和在途冲突为 409。
 - 异步接纳为 202 + `Location` + operation。至少隔一秒轮询；保留 `partially_succeeded`、`cancel_requested`、`interrupted`，取消接纳不等于立即停止。`cancel_allowed` 同时检查当前 Key、账号与资源权限及任务状态；真正取消时仍重新校验，期间撤权可导致请求被拒绝。只查询既有原生作业，不新增队列、执行器或账本。
 - API Key 用于鉴权，返回的资源 `id` 用于后续访问；资源响应总有用于追踪的 `X-Request-ID`，它不能代替幂等键，也不能保证响应丢失后的安全重试；错误为 `error.code/message/details/request_id`，429 带 `Retry-After`。文件内容下载不传 `Range` 时返回完整文件；显式传入单 `Range` 时返回 206 和 `Content-Range`，例如 `bytes=0-1023` 仅取前 1024 字节。默认下载示例使用 `--output` 保存完整内容。推理仍使用原 OpenAI 错误形状和 SSE `data: [DONE]`。
 

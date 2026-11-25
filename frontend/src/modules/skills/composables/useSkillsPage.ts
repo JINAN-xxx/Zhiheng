@@ -1,14 +1,17 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Modal } from 'ant-design-vue'
-import { canUseCapability } from '../../identity/public.ts'
+import { canUseCapability, identity } from '../../identity/public.ts'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
 import {
   deleteSkill,
   getSkill,
   getSkillContent,
   listSkills,
-  updateSkillStatus
+  updateSkillStatus,
+  publishPlatformSkill,
+  withdrawPlatformSkill
 } from '../api/index.ts'
 import type { Skill, SkillListQuery } from '../api/index.ts'
 
@@ -28,10 +31,9 @@ export function useSkillsPage() {
       canUseCapability('skills', 'toggle')
   )
   const canUpload = computed(() => canUseCapability('skills', 'create'))
+  const publishing = ref(false)
   const canToggleSkill = (item: Skill): boolean =>
-    item.sourceType === 'builtin'
-      ? canUseCapability('skills', 'use')
-      : canUseCapability('skills', 'toggle')
+    item.sourceType === 'upload' && canUseCapability('skills', 'toggle')
   const activeTab = ref<'market' | 'mine'>(
     route.query.tab === 'mine' || route.query.action === 'upload' ? 'mine' : 'market'
   )
@@ -54,11 +56,13 @@ export function useSkillsPage() {
     status: undefined,
     pageNum: 1,
     pageSize: 24,
-    source: activeTab.value === 'market' ? 'builtin' : 'upload'
+    source: activeTab.value === 'market' ? 'platform' : 'upload'
   })
   const listScope = new RequestScope(),
     detailScope = new RequestScope(),
-    deletionScope = new RequestScope()
+    deletionScope = new RequestScope(),
+    publicationScope = new RequestScope()
+  const { confirm, cancel: cancelPublicationConfirmation } = useConfirmation()
   const statusScopes = new Map<string, RequestScope>()
   let closeConfirmation: (() => void) | undefined
   let requestedQuery = ''
@@ -92,11 +96,12 @@ export function useSkillsPage() {
     const next = value === 'mine' ? 'mine' : 'market'
     if (activeTab.value === next) return
     listScope.replace()
+    cancelPublicationConfirmation()
     setDetailOpen(false)
     uploadOpen.value = false
     uploadTarget.value = null
     activeTab.value = next
-    query.source = next === 'market' ? 'builtin' : 'upload'
+    query.source = next === 'market' ? 'platform' : 'upload'
     query.keyword = ''
     query.status = undefined
     query.pageNum = 1
@@ -178,7 +183,7 @@ export function useSkillsPage() {
 
   async function loadDetail(): Promise<void> {
     const item = detail.value
-    if (!detailOpen.value || !item) return
+    if (!detailOpen.value || !item || item.sourceType === 'platform') return
     const context = detailScope.replace()
     detailLoading.value = true
     detailError.value = ''
@@ -221,7 +226,7 @@ export function useSkillsPage() {
   function openUpload(target: Skill | null = null): void {
     if (
       !canUseCapability('skills', target ? 'update' : 'create') ||
-      target?.sourceType === 'builtin'
+      target?.sourceType === 'platform'
     )
       return
     if (activeTab.value !== 'mine') changeTab('mine')
@@ -232,6 +237,77 @@ export function useSkillsPage() {
 
   function updateSelected(): void {
     if (detail.value?.sourceType === 'upload') openUpload(detail.value)
+  }
+
+  function canManagePublication(item: Skill): boolean {
+    return item.sourceType === 'platform'
+      ? identity.value?.is_admin === true
+      : canUseCapability('skills', 'platform_publish')
+  }
+
+  function publicationActions(item: Skill) {
+    const actions: {
+      command: 'publish' | 'withdraw'
+      label: string
+      danger?: boolean
+      disabledReason?: string
+    }[] = []
+    if (!canManagePublication(item)) return actions
+    if (item.sourceType === 'upload' && item.platformRevisionId !== item.revisionId) {
+      const disabledReason =
+        item.fileCount !== 1
+          ? '技能包须仅包含 SKILL.md'
+          : item.status !== 'enabled'
+            ? '请先启用技能'
+            : ''
+      actions.push({
+        command: 'publish',
+        label: item.platformRevisionId ? '更新上架版本' : '上架平台技能',
+        disabledReason
+      })
+    }
+    if (item.sourceType === 'platform' || item.platformRevisionId) {
+      actions.push({ command: 'withdraw', label: '下架平台技能', danger: true })
+    }
+    return actions
+  }
+
+  async function changePublication(item: Skill, command: string): Promise<void> {
+    const action = publicationActions(item).find((entry) => entry.command === command)
+    if (!action || action.disabledReason || publishing.value) return
+    const context = publicationScope.replace()
+    const startedQuery = queryKey()
+    const owner = identity.value?.id
+    if (
+      !(await confirm(`确认${action.label}「${item.skillName}」？`)) ||
+      !context.isCurrent() ||
+      !canManagePublication(item) ||
+      identity.value?.id !== owner ||
+      queryKey() !== startedQuery
+    )
+      return
+    publishing.value = true
+    failures[item.skillId] = undefined
+    try {
+      if (command === 'withdraw') {
+        await withdrawPlatformSkill(item, context.signal)
+        if (context.isCurrent()) {
+          if (detail.value?.skillId === item.skillId) setDetailOpen(false)
+          await load()
+        }
+      } else {
+        const updated = await publishPlatformSkill(item, context.signal)
+        if (context.isCurrent()) {
+          afterMutation(startedQuery)
+          if (activeTab.value === 'mine') syncSkill(updated)
+        }
+      }
+    } catch (reason) {
+      if (context.isCurrent() && !isAborted(reason))
+        failures[item.skillId] = { message: errorMessage(reason) }
+    } finally {
+      if (context.isCurrent()) publishing.value = false
+    }
   }
 
   function toggleSelected(): void {
@@ -326,11 +402,15 @@ export function useSkillsPage() {
     listScope.dispose()
     detailScope.dispose()
     deletionScope.dispose()
+    publicationScope.dispose()
     for (const scope of statusScopes.values()) scope.dispose()
     statusScopes.clear()
   })
 
   return {
+    publishing,
+    publicationActions,
+    changePublication,
     activeTab,
     changeTab,
     skills,

@@ -4,11 +4,15 @@ from uuid import UUID, uuid4
 
 import httpx
 from fastapi import FastAPI
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import create_async_engine
 
+from tests.core.integration.test_builtin_role_migration import _version
 from tests.core.integration.test_knowledge import embedding_model
 from tests.core.integration.test_platform_module_permissions import member
 from tests.core.provider import ProviderServer
+from zhiheng.bootstrap.migrations import migrate
+from zhiheng.bootstrap.settings import Settings
 from zhiheng.modules.identity.admin_orm import IdentityRole, IdentityUserRole
 from zhiheng.modules.identity.orm import IdentityUser
 from zhiheng.shared.permission_policy import PERMISSION_CODES
@@ -213,13 +217,84 @@ async def test_user_edit_and_role_edit_cannot_escalate_assignment(admin: httpx.A
         assert denied.status_code == 403, denied.text
 
 
-async def test_parameter_create_does_not_authorize_global_settings_update(
-    admin: httpx.AsyncClient, app: FastAPI
-) -> None:
-    await allow(app, 'system:configs', 'create')
+async def test_notice_setting_and_knowledge_defaults_are_independent(app: FastAPI) -> None:
+    await allow(app, 'system:notice_settings', 'create')
+    async with member(app) as client:
+        assert (await client.get('/api/admin/configs')).status_code == 200
+        assert (await client.get('/api/admin/notices')).status_code == 403
+        assert (await client.get('/api/knowledge/settings')).status_code == 403
+        assert (await client.patch('/api/knowledge/settings', json={})).status_code == 403
+        assert (
+            await client.post(
+                '/api/admin/configs',
+                json={
+                    'key': 'console.notice_enabled',
+                    'name': '公告展示',
+                    'value': 'false',
+                },
+            )
+        ).status_code == 201
+
+    await allow(app, 'knowledge_settings', 'read')
     async with member(app) as client:
         assert (await client.get('/api/knowledge/settings')).status_code == 200
+        assert (await client.get('/api/knowledge/settings/parsing')).status_code == 200
+        assert (await client.get('/api/models')).status_code == 200
         assert (await client.patch('/api/knowledge/settings', json={})).status_code == 403
+
+
+async def test_settings_permission_migration_preserves_actions_and_module_switches(settings: Settings) -> None:
+    await _version(settings, '0048_admin_skill_library')
+    engine = create_async_engine(settings.database_url.get_secret_value())
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("""INSERT INTO identity_roles
+                (id, code, name, permissions, is_active, remark, version, created_at, updated_at)
+                VALUES
+                (gen_random_uuid(), 'settings-editor', 'Settings editor',
+                 '["system:configs:enabled","system:configs:read","system:configs:update","ai:storage:parse","ai:storage:read"]',
+                 true, '', 5, now(), now()),
+                (gen_random_uuid(), 'visibility-off', 'Visibility off',
+                 '["system:configs:read","system:configs:create","system:configs:delete","system:configs:toggle"]',
+                 true, '', 8, now(), now())""")
+            )
+        await migrate(settings)
+        async with engine.connect() as connection:
+            rows = (
+                await connection.execute(
+                    text(
+                        "SELECT code, permissions, version FROM identity_roles WHERE code IN ('settings-editor', 'visibility-off')"
+                    )
+                )
+            ).all()
+        permissions = {row.code: (set(row.permissions), row.version) for row in rows}
+        assert permissions == {
+            'settings-editor': (
+                {
+                    'system:notice_settings:enabled',
+                    'system:notice_settings:read',
+                    'system:notice_settings:update',
+                    'platform:knowledge_settings:enabled',
+                    'platform:knowledge_settings:read',
+                    'platform:knowledge_settings:update',
+                    'ai:storage:read',
+                },
+                6,
+            ),
+            'visibility-off': (
+                {
+                    'system:notice_settings:read',
+                    'system:notice_settings:create',
+                    'system:notice_settings:delete',
+                    'system:notice_settings:toggle',
+                    'platform:knowledge_settings:read',
+                },
+                9,
+            ),
+        }
+    finally:
+        await engine.dispose()
 
 
 async def test_import_permission_completes_owned_import_without_query_or_delete(

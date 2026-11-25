@@ -43,14 +43,14 @@ class ParsingSettingsService:
         )
 
     async def get(self, session: AsyncSession, principal: Principal) -> ParsingSettingsInfo:
-        principal.require_permission('system:configs:read')
+        principal.require_permission('platform:knowledge_settings:read')
         config, version = await self.snapshot(session)
         return self.public(config, version)
 
     async def update(
         self, session: AsyncSession, principal: Principal, body: ParsingSettingsPatch
     ) -> ParsingSettingsInfo:
-        principal.require_permission('system:configs:update')
+        principal.require_permission('platform:knowledge_settings:update')
         await session.execute(
             insert(ParsingConfiguration).values(id=1, version=1, config=DEFAULT_PARSING).on_conflict_do_nothing()
         )

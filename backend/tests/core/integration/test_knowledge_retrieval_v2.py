@@ -12,6 +12,7 @@ from sqlalchemy import select
 from tests.core.integration.test_knowledge import VectorFixture, embedding_model
 from tests.core.integration.test_knowledge_failures import finish_job
 from tests.core.provider import ProviderHandler, ProviderServer
+from zhiheng.modules.billing.orm import Invocation
 from zhiheng.modules.knowledge.orm import IndexGeneration, KnowledgeDefaults, KnowledgeStep, RetrievalIntent
 from zhiheng.modules.knowledge.public import VectorSpec
 from zhiheng.runtime.orm import Run
@@ -166,6 +167,29 @@ async def test_ranker_is_durable_frozen_metered_and_replay_does_not_recall(
     assert any(record['model_id'] == rerank for record in usage), usage
 
 
+async def test_unsupported_retrieval_payload_settles_pending_step(
+    admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer
+) -> None:
+    container = app.state.container
+    base, _, _, _ = await ready(admin, app, provider)
+    intent, run_id = await pending_ranker(admin, app, base)
+    async with container.database.sessions.begin() as session:
+        row = await session.get(RetrievalIntent, UUID(intent['id']))
+        assert row is not None and row.dependencies['payload_version'] == 1
+        row.dependencies = {**row.dependencies, 'payload_version': 999}
+        invocation = await session.scalar(select(Invocation).where(Invocation.run_id == run_id))
+        assert invocation is not None and invocation.status == 'pending'
+    await container.knowledge_preparation.tick(UUID(intent['id']))
+    result = (await admin.get(f'/api/knowledge/preparations/{intent["id"]}')).json()
+    assert result['status'] == 'failed' and result['error']['code'] == 'knowledge_payload_version', result
+    async with container.database.sessions() as session:
+        row = await session.get(Run, run_id)
+        assert row is not None and row.status == 'cancelled' and not row.provider_started
+        invocation = await session.scalar(select(Invocation).where(Invocation.run_id == run_id))
+        assert invocation is not None and invocation.status == 'known' and invocation.charged_tokens == 0
+    assert not any(body['model'] == 'ranker' for body in provider.requests)
+
+
 @pytest.mark.parametrize('status', [429, 503, 403])
 async def test_provider_failures_never_return_unranked_hits(
     admin: httpx.AsyncClient,
@@ -234,7 +258,7 @@ async def test_api_key_must_explicitly_authorize_default_ranker(
     from zhiheng.modules.knowledge.public import QueryRequest
     from zhiheng.shared.errors import AppError
 
-    base, embed, _, _ = await ready(admin, app, provider)
+    base, _, _, _ = await ready(admin, app, provider)
     owner_app = await application(admin)
     key = await issue(admin, owner_app['id'], scopes=['knowledge:query'])
     c = app.state.container

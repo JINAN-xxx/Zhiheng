@@ -1,5 +1,6 @@
 """Current resource authorization surrounds storage IO without holding row locks."""
 
+from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
 from uuid import UUID
@@ -9,6 +10,14 @@ from zhiheng.infrastructure.database import Database
 from zhiheng.modules.files.public import FileBinding, FileInfo, FileService, resource_page
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
+
+MAX_FILE_PAGE_BATCHES = 4
+
+
+@dataclass(frozen=True)
+class FileResourcePage:
+    items: list[FileInfo]
+    next_position: tuple[datetime, UUID] | None
 
 
 class FileQueries:
@@ -27,30 +36,35 @@ class FileQueries:
         purpose: str | None,
         after: tuple[datetime, UUID] | None,
         limit: int,
-    ) -> list[FileInfo]:
+    ) -> FileResourcePage:
         async with self.database.sessions.begin() as session:
             caller = await self.access.current(session, caller, 'files:read')
             grants = await self.access.readable_grants(session, caller, 'file')
             bindings = tuple(FileBinding(g.resource_id, g.ownership.owner_id, g.ownership.stamp) for g in grants)
-            candidates = await resource_page(
-                self.files,
-                session,
-                self.access.personal(caller.principal),
-                bindings,
-                purpose=purpose,
-                after=after,
-                limit=limit,
-            )
-            result = []
-            for item in candidates:
-                try:
-                    await self.files.require(session, self.access.personal(caller.principal), item.id, active=True)
-                except AppError as error:
-                    if error.status_code != HTTPStatus.NOT_FOUND:
-                        raise
-                    continue
-                result.append(item)
-            return result
+            principal = self.access.personal(caller.principal)
+            position = after
+            items: list[FileInfo] = []
+            batch_size = limit + 1
+            for batch in range(MAX_FILE_PAGE_BATCHES):
+                # The final fetch peeks one row past the scan budget without consuming it.
+                take = batch_size + (batch == MAX_FILE_PAGE_BATCHES - 1)
+                candidates = await resource_page(
+                    self.files, session, principal, bindings, purpose=purpose, after=position, limit=take
+                )
+                for item in candidates[:batch_size]:
+                    try:
+                        await self.files.ensure_readable(session, principal, item.id)
+                    except AppError as error:
+                        if error.status_code != HTTPStatus.NOT_FOUND:
+                            raise
+                    else:
+                        if len(items) == limit:
+                            return FileResourcePage(items, position)
+                        items.append(item)
+                    position = (item.created_at, item.id)
+                if len(candidates) < take:
+                    return FileResourcePage(items, None)
+            return FileResourcePage(items, position)
 
     async def read(
         self,

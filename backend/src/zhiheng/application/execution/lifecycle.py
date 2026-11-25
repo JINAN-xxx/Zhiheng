@@ -2,6 +2,7 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from zhiheng.application.execution.run_policy import run_policy
 from zhiheng.modules.chat.public import ChatService
 from zhiheng.modules.work.public import WorkAgentStore, WorkService
 from zhiheng.runtime.contracts import TERMINAL_STATUSES, RunSnapshot
@@ -15,11 +16,12 @@ class RunLifecycle:
         self.work_agent = work_agent
 
     async def project(self, session: AsyncSession, snapshot: RunSnapshot) -> None:
-        if snapshot.resource_type == 'work_agent':
+        projection = run_policy(snapshot.resource_type).projection
+        if projection == 'work_agent':
             if self.work_agent is not None:
                 await self.work_agent.project_snapshot(session, snapshot)
             return
-        if snapshot.resource_type == 'work_turn':
+        if projection == 'work_turn':
             await self.work.project(
                 session,
                 snapshot.resource_id,
@@ -31,7 +33,7 @@ class RunLifecycle:
                 error=snapshot.error.model_dump() if snapshot.error else None,
                 terminal=snapshot.status in TERMINAL_STATUSES,
             )
-        elif snapshot.resource_type == 'chat':
+        elif projection == 'chat':
             if snapshot.status == 'completed':
                 await self.chat.complete(
                     session,

@@ -8,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 
 from zhiheng.api.common.dependencies import ContainerDependency, SessionDependency
 from zhiheng.api.common.file_content import file_content_response
-from zhiheng.api.common.pagination import decode_cursor, encode_cursor
+from zhiheng.api.common.pagination import MAX_CURSOR_LENGTH, decode_cursor, encode_cursor
 from zhiheng.api.common.preconditions import Idempotency
 from zhiheng.api.resources.dependencies import resource_bearer, resource_caller
 from zhiheng.api.resources.schemas.files import ResourceFilePage
@@ -18,6 +18,7 @@ from zhiheng.shared.errors import AppError
 
 MAX_VERSION_DIGITS = 10
 MULTIPART_FIELD_COUNT = 2
+SEALED_FILE_CURSOR = 'f1.'
 
 router = APIRouter(prefix='/api/v1/files', tags=['resources:files'])
 ReadCaller = Annotated[CallerContext, Depends(resource_caller('files:read'))]
@@ -112,16 +113,28 @@ async def page(
     container: ContainerDependency,
     caller: ReadCaller,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    cursor: Annotated[str | None, Query(max_length=1024)] = None,
+    cursor: Annotated[str | None, Query(max_length=MAX_CURSOR_LENGTH)] = None,
     purpose: Annotated[str | None, Query(min_length=1, max_length=64, pattern=r'^[a-z][a-z0-9_-]*$')] = None,
 ) -> ResourceFilePage:
     assert caller.identity is not None
     binding = f'{caller.identity.application_id}:file:purpose={purpose or ""}'
+    if cursor is not None and cursor.startswith(SEALED_FILE_CURSOR):
+        try:
+            cursor = container.cipher.decrypt(cursor.removeprefix(SEALED_FILE_CURSOR))
+        except AppError as error:
+            if error.code != 'credential_unavailable':
+                raise
+            raise AppError('invalid_cursor', '分页游标无效或不属于当前应用及过滤条件', 422) from error
     after = decode_cursor(cursor, binding)
-    found = await container.file_queries.page(caller, purpose=purpose, after=after, limit=limit + 1)
-    items, has_more = found[:limit], len(found) > limit
-    next_cursor = encode_cursor(binding, items[-1].created_at, items[-1].id) if has_more else None
-    return ResourceFilePage(items=items, next_cursor=next_cursor, has_more=has_more)
+    found = await container.file_queries.page(caller, purpose=purpose, after=after, limit=limit)
+    position = found.next_position
+    next_cursor = None
+    if position is not None:
+        next_cursor = encode_cursor(binding, *position)
+        # The legacy format exposes its position. Seal positions not authorized for the response.
+        if not found.items or position != (found.items[-1].created_at, found.items[-1].id):
+            next_cursor = SEALED_FILE_CURSOR + container.cipher.encrypt(next_cursor)
+    return ResourceFilePage(items=found.items, next_cursor=next_cursor, has_more=position is not None)
 
 
 @router.get('/{file_id}', openapi_extra={'x-response-headers': ['ETag'], 'x-required-scopes': ['files:read']})

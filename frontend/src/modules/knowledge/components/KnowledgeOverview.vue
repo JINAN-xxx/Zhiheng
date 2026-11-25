@@ -23,7 +23,7 @@ import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import { useRouter } from 'vue-router'
-import { identity, hasAnyPermission, canUseCapability } from '../../identity/public.ts'
+import { identity, canUseCapability } from '../../identity/public.ts'
 import type { KnowledgeBase, KnowledgeBaseListItem } from '../api/index.ts'
 import { knowledgeInvitationPath } from '../invitationLink.ts'
 const props = defineProps<{
@@ -59,7 +59,7 @@ function joinFromLink() {
   joinOpen.value = false
   void router.push(destination)
 }
-const defaultsAccess = computed(() => hasAnyPermission(identity.value, 'system:configs:read'))
+const defaultsAccess = computed(() => canUseCapability('knowledge_settings', 'read'))
 const search = ref(''),
   scope = ref('owned')
 const ownedCount = computed(

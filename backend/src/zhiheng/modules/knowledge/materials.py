@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from sqlalchemy import func, or_, select, tuple_, update
 
@@ -413,11 +413,15 @@ class KnowledgeMaterials:
     def _document_query(
         self, principal: Principal, base: KnowledgeBase
     ) -> Select[tuple[KnowledgeDocument, UUID | None, UUID | None]]:
-        query = (
-            select(KnowledgeDocument, KnowledgeMaterial.document_id, KnowledgeMaterial.base_id)
-            .outerjoin(KnowledgeMaterial, KnowledgeMaterial.file_id == KnowledgeDocument.file_id)
-            .where(KnowledgeDocument.base_id == base.id)
-            .order_by(KnowledgeDocument.created_at, KnowledgeDocument.id)
+        # SQLAlchemy types the selected columns before accounting for the outer join.
+        query = cast(
+            'Select[tuple[KnowledgeDocument, UUID | None, UUID | None]]',
+            select(KnowledgeDocument, KnowledgeMaterial.document_id, KnowledgeMaterial.base_id).outerjoin(
+                KnowledgeMaterial, KnowledgeMaterial.file_id == KnowledgeDocument.file_id
+            ),
+        )
+        query = query.where(KnowledgeDocument.base_id == base.id).order_by(
+            KnowledgeDocument.created_at, KnowledgeDocument.id
         )
         if base.document_policy != 'library':
             query = query.where(KnowledgeDocument.migration_source_document_id.is_(None))

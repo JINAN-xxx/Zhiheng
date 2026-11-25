@@ -171,7 +171,18 @@ class AssistantAgentService:
         if len(by_chunk) > MAX_MEMORY_SOURCE_REFS:
             raise AppError('assistant_memory_sources_limit', '本次会话引用资料过多，请新建对话', 422)
         history_sources = list(by_chunk.values())
-        await self.validate_sources(session, principal, value.config.knowledge_base_ids, history_sources)
+        source_owner = principal
+        if value.info.plaza and history_sources:
+            if (
+                previous is None
+                or value.plaza_version is None
+                or previous.execution.plaza_version != value.plaza_version
+            ):
+                raise AppError('assistant_history_source_unavailable', '广场知识授权已更新，请新建对话', 409)
+            source_owner = await self.knowledge.assistant_sources(
+                session, principal, value.info.id, value.plaza_version, value.config.knowledge_base_ids
+            )
+        await self.validate_sources(session, source_owner, value.config.knowledge_base_ids, history_sources)
         file_records = previous.execution.history_files if previous else []
         by_file = {item.file_id: item for item in [*file_records, *(item.summary for item in attachments)]}
         if len(by_file) > MAX_MEMORY_SOURCE_REFS:
@@ -188,7 +199,9 @@ class AssistantAgentService:
             sequence=sequence,
             history_sources=history_sources,
         )
-        return metadata.model_copy(update={'history_files': list(by_file.values())})
+        return metadata.model_copy(
+            update={'history_files': list(by_file.values()), 'plaza_version': value.plaza_version}
+        )
 
     async def validate_sources(
         self, session: AsyncSession, principal: Principal, allowed: list[UUID], records: list[dict[str, object]]
@@ -243,9 +256,8 @@ class AssistantAgentService:
     ) -> None:
         principal = await self.identity.principal_for_user(session, owner_id)
         frozen = await self.store.snapshot(session, run_id)
-        agent = await self.agents.get(session, principal, frozen.agent_id)
-        if require_enabled and not agent.enabled:
-            raise AppError('assistant_disabled', '助手已停用，请重新启用后发送', 409)
+        source_owner = principal
+        plaza = False
         if conversation_id is not None:
             row = await self.store.authorize(session, principal, conversation_id)
             if (
@@ -254,14 +266,32 @@ class AssistantAgentService:
                 or row.memory_run_id != frozen.execution.base_run_id
             ):
                 raise AppError('assistant_memory_changed', '助手记忆状态已变化，请重新发送', 409)
+            plaza = row.plaza
+        if plaza:
+            current = await self.store.current(session, principal, frozen.agent_id, plaza=True, load_skills=False)
+            if current.config.execution_config() != frozen.config.execution_config():
+                raise AppError('assistant_configuration_changed', '广场助手已更新，请重新发送', 409)
+            base_ids = current.config.knowledge_base_ids
+            if base_ids:
+                assert conversation_id is not None
+                if frozen.execution.plaza_version is None:
+                    raise AppError('assistant_plaza_knowledge_revoked', '广场知识授权已变化，请重新发送', 409)
+                source_owner = await self.knowledge.assistant_sources(
+                    session, principal, conversation_id, frozen.execution.plaza_version, base_ids
+                )
+        else:
+            agent = await self.agents.get(session, principal, frozen.agent_id)
+            if require_enabled and not agent.enabled:
+                raise AppError('assistant_disabled', '助手已停用，请重新启用后发送', 409)
+            base_ids = agent.knowledge_base_ids
         await require_frozen_available(session, owner_id, frozen.skills)
         await self.attachments.validate(session, principal, frozen.execution.history_files, request.binding)
         await self.models.bindings.resolve(session, request.binding.model_id)
         await self.validate_sources(
-            session, principal, agent.knowledge_base_ids, frozen.execution.history_sources + frozen.knowledge
+            session, source_owner, base_ids, frozen.execution.history_sources + frozen.knowledge
         )
         for base_id in frozen.config.knowledge_base_ids:
-            await self.knowledge.knowledge.require(session, principal, base_id)
+            await self.knowledge.knowledge.require(session, source_owner, base_id)
 
     @asynccontextmanager
     async def provider(

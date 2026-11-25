@@ -8,11 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
 from zhiheng.api.common.file_content import file_content_response
+from zhiheng.application.agents.receipts import AssistantSubmissionReceipt
 from zhiheng.modules.agents.public import AssistantConversationInfo
-from zhiheng.modules.files.public import FileInfo, file_semantics
+from zhiheng.modules.files.public import FileInfo
 from zhiheng.modules.knowledge.public import PreparationInfo
 from zhiheng.runtime.contracts import RunSnapshot
-from zhiheng.shared.errors import AppError
 
 router = APIRouter(prefix='/api/agents/{agent_id}/conversations', tags=['agents'])
 
@@ -67,17 +67,11 @@ async def upload_attachment(
     request: Request,
     container: ContainerDependency,
     principal: PrincipalDependency,
-    session: SessionDependency,
     filename: Annotated[str, Query(min_length=1, max_length=255)],
+    plaza: bool = False,
 ) -> FileInfo:
-    config, _ = await container.assistant_conversations.store.current(session, principal, agent_id)
-    binding = await container.models.bindings.resolve(session, config.model_id)
-    content = await request.body()
-    mime = file_semantics(filename, content, 'chat_attachment')['mime']
-    if isinstance(mime, str) and mime.startswith('image/') and not binding.vision_enabled:
-        raise AppError('unsupported_capability', '当前助手模型不支持图片，请使用支持视觉的模型', 422)
-    return await container.file_commands.upload(
-        principal, filename=filename, content=content, purpose='chat_attachment'
+    return await container.assistant_conversations.upload_attachment(
+        principal, agent_id, filename=filename, content=await request.body(), plaza=plaza
     )
 
 
@@ -89,13 +83,10 @@ async def download_attachment(
     request: Request,
     container: ContainerDependency,
     principal: PrincipalDependency,
-    session: SessionDependency,
 ) -> Response:
-    await container.assistant_conversations.store.require(session, principal, agent_id, conversation_id)
-    await container.files.references.require_scoped_attachment(
-        session, principal, file_id, resource_type='agent_chat', resource_id=conversation_id
+    info, content = await container.assistant_conversations.attachment_content(
+        principal, agent_id, conversation_id, file_id
     )
-    info, content = await container.file_queries.read(principal, file_id)
     return await file_content_response(request, container, principal, info, content)
 
 
@@ -105,8 +96,9 @@ async def list_conversations(
     container: ContainerDependency,
     principal: PrincipalDependency,
     before: UUID | None = None,
+    plaza: bool = False,
 ) -> list[AssistantConversationInfo]:
-    return await container.assistant_conversations.list(principal, agent_id, before)
+    return await container.assistant_conversations.list(principal, agent_id, before, plaza=plaza)
 
 
 @router.post('', status_code=201)
@@ -115,8 +107,35 @@ async def create_conversation(
     body: ConversationCreate,
     container: ContainerDependency,
     principal: PrincipalDependency,
+    plaza: bool = False,
 ) -> AssistantConversationInfo:
-    return await container.assistant_conversations.create(principal, agent_id, body.client_request_id)
+    return await container.assistant_conversations.create(principal, agent_id, body.client_request_id, plaza=plaza)
+
+
+@router.get('/submissions/{request_id}')
+async def submission_receipt(
+    agent_id: UUID,
+    request_id: UUID,
+    create_id: UUID,
+    response: Response,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+    conversation_id: UUID | None = None,
+    plaza: bool = False,
+) -> AssistantSubmissionReceipt:
+    async with session.begin():
+        receipt = await container.assistant_conversations.receipts.get(
+            session,
+            principal,
+            agent_id=agent_id,
+            request_id=request_id,
+            create_id=create_id,
+            conversation_id=conversation_id,
+            plaza=plaza,
+        )
+    response.headers['Cache-Control'] = 'no-store'
+    return receipt
 
 
 @router.get('/{conversation_id}')

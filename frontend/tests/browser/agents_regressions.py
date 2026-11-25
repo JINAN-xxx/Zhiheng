@@ -116,8 +116,133 @@ class AgentsUIRegressions(DeveloperBoundary):
             await super().respond(route)
 
     async def open_agents(self):
-        await self.page.goto(self.origin + '/agents')
+        await self.page.goto(self.origin + '/agents?tab=mine')
         await expect(self.page.get_by_role('heading', name='智能助手', exact=True)).to_be_visible()
+
+    async def test_plaza_publish_action_is_separate_from_enable_permission(self):
+        self.agent.update(status='enabled', version=5)
+        permissions = list(granted_permissions('platform:agents:publish', 'platform:agents:debug'))
+        calls = []
+
+        async def who_am_i(route):
+            await route.fulfill(json={
+                'id': 'user-1', 'username': 'publisher', 'is_admin': False, 'permissions': permissions
+            })
+
+        async def publish(route):
+            calls.append((route.request.method, route.request.post_data_json))
+            self.agent.update(version=6, plaza_version=6)
+            await route.fulfill(json=self.agent)
+
+        await self.page.route('**/api/auth/me', who_am_i)
+        await self.page.route('**/api/agents/agent-1/plaza', publish)
+        await self.page.route('**/api/agents/plaza/departments', lambda route: route.fulfill(json=[]))
+        await self.open_agents()
+        await self.page.locator('.agent-card').get_by_role('button', name='更多操作').click()
+        await expect(self.page.get_by_role('menuitem', name='调试')).to_be_visible()
+        await expect(self.page.get_by_role('menuitem', name='上架广场')).to_have_count(0)
+
+        permissions.extend(granted_permissions('platform:agents:plaza_publish'))
+        await self.open_agents()
+        await self.choose_agent_action('上架广场')
+        await self.page.get_by_role('dialog').get_by_role('button', name='上架广场', exact=True).click()
+        await expect(self.page.get_by_text('已上架', exact=True)).to_be_visible()
+        self.assertEqual(calls, [('PUT', {'expected_version': 5, 'department_id': None, 'allow_knowledge': False})])
+
+    async def test_superadmin_can_unpublish_directly_from_plaza_card(self):
+        published = {
+            'id': 'other-assistant', 'name': '他人助手', 'description': '', 'welcome_message': '',
+            'plaza_version': 7
+        }
+        rows, calls = [published], []
+
+        async def list_plaza(route):
+            await route.fulfill(json={'items': rows, 'total': len(rows)})
+
+        async def remove_plaza(route):
+            calls.append((route.request.method, route.request.post_data_json))
+            rows.clear()
+            await route.fulfill(status=204)
+
+        await self.page.route('**/api/agents/plaza?*', list_plaza)
+        await self.page.route('**/api/agents/other-assistant/plaza', remove_plaza)
+        await self.page.goto(self.origin + '/agents?tab=plaza')
+        await self.page.get_by_role('button', name='更多操作', exact=True).click()
+        await self.page.get_by_role('menuitem', name='紧急下架').click()
+        await self.page.get_by_role('dialog').get_by_role('button', name=re.compile(r'确\s*定')).click()
+        await expect(self.page.get_by_text('暂无上架助手', exact=True)).to_be_visible()
+        self.assertEqual(calls, [('DELETE', {'expected_version': 7})])
+
+    async def test_plaza_card_opens_chat_with_public_metadata(self):
+        detail = {'id': 'agent-1', 'name': '广场助手示例', 'description': '总结资料', 'welcome_message': '欢迎使用'}
+        requests = []
+
+        async def plaza(route):
+            path = urlparse(route.request.url).path
+            requests.append(path)
+            if path == '/api/agents/plaza':
+                await route.fulfill(json={'items': [detail], 'total': 1})
+            elif path == '/api/agents/plaza/agent-1':
+                await route.fulfill(json=detail)
+            else:
+                await route.fulfill(json=[])
+
+        await self.page.route('**/api/agents/plaza**', plaza)
+        await self.page.route('**/api/agents/agent-1/conversations?plaza=true', plaza)
+        self.page.on('request', lambda request: requests.append(urlparse(request.url).path)
+                     if urlparse(request.url).path == '/api/agents/agent-1' else None)
+        await self.page.goto(self.origin + '/agents')
+        await expect(self.page.get_by_role('tab')).to_have_text(['助手广场', '我的助手'])
+        await expect(self.page.get_by_role('tab', name='助手广场')).to_have_attribute('aria-selected', 'true')
+        await expect(self.page.get_by_role('button', name='新建智能助手')).to_have_count(0)
+        await self.page.get_by_role('button', name='使用广场助手示例').click()
+        await expect(self.page.get_by_role('heading', name='广场助手示例')).to_be_visible()
+        await expect(self.page.locator('main.platform-page')).to_have_class(re.compile(r'\bis-conversation\b'))
+        self.assertNotIn('/api/agents/agent-1', requests)
+        await self.page.get_by_role('button', name='返回智能助手').click()
+        await expect(self.page.get_by_role('tab', name='助手广场')).to_have_attribute('aria-selected', 'true')
+
+    async def test_switching_agent_tabs_preserves_search_and_toolbar(self):
+        paths = []
+        detail = {'id': 'agent-1', 'name': '广场助手示例', 'description': '总结资料', 'welcome_message': ''}
+
+        async def plaza(route):
+            paths.append(urlparse(route.request.url).path)
+            if paths[-1] == '/api/agents/plaza':
+                await route.fulfill(json={'items': [detail], 'total': 1})
+            else:
+                await route.fulfill(json=[])
+
+        await self.page.route('**/api/agents/plaza**', plaza)
+        for width in (1440, 390):
+            with self.subTest(width=width):
+                paths.clear()
+                await self.page.set_viewport_size({'width': width, 'height': 850})
+                await self.open_agents()
+                await expect(self.page.get_by_role('heading', name=self.agent['name'])).to_be_visible()
+                toolbar = self.page.get_by_role('button', name='刷新智能助手')
+                personal = self.page.get_by_role('textbox', name='搜索智能助手')
+                original = await toolbar.bounding_box()
+                personal_position = await personal.bounding_box()
+                await self.page.get_by_role('tab', name='助手广场').click()
+                await expect(self.page.get_by_role('button', name='使用广场助手示例')).to_be_visible()
+                plaza_position = await toolbar.bounding_box()
+                for axis in ('x', 'y'):
+                    self.assertAlmostEqual(original[axis], plaza_position[axis], delta=1)
+                plaza_search = self.page.get_by_role('textbox', name='搜索广场助手')
+                panel = self.page.get_by_role('tabpanel', name='助手广场')
+                await expect(panel.get_by_role('textbox', name='搜索广场助手')).to_be_visible()
+                plaza_search_position = await plaza_search.bounding_box()
+                for axis in ('x', 'y'):
+                    self.assertAlmostEqual(personal_position[axis], plaza_search_position[axis], delta=1)
+                await plaza_search.fill('总结')
+                requests = paths.count('/api/agents/plaza')
+                await self.page.get_by_role('tab', name='我的助手').click()
+                await expect(personal).to_be_visible()
+                await self.page.get_by_role('tab', name='助手广场').click()
+                await expect(plaza_search).to_have_value('总结')
+                await expect(self.page.get_by_role('button', name='使用广场助手示例')).to_be_visible()
+                self.assertEqual(paths.count('/api/agents/plaza'), requests)
 
     async def test_inline_application_creation_only_requires_name(self):
         submissions = []

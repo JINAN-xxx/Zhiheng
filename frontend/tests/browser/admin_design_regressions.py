@@ -43,7 +43,7 @@ class AdminDesignRegressions(base.AdminRegressions):
         self.assertFalse(any(path.startswith('/api/admin/configs') for _,path,_,_ in self.requests))
 
     async def test_configuration_only_reader_uses_notice_group_without_notice_requests(self):
-        self.user={'id':'self','username':'config-reader','is_admin':False,'permissions':base.granted_permissions('system:configs:read')}
+        self.user={'id':'self','username':'config-reader','is_admin':False,'permissions':base.granted_permissions('system:notice_settings:read')}
         await self.page.goto(self.origin+'/admin')
         await expect(self.page).to_have_url(self.origin+'/admin/configs')
         await expect(self.page.get_by_role('navigation',name='后台管理导航').get_by_role('link')).to_have_count(1)

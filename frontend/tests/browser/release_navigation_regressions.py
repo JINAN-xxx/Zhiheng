@@ -11,6 +11,8 @@ from permission_tree_regressions import PermissionTreeRegressions, OperationMode
 class ReleaseKnowledgeNavigationRegressions(KnowledgeAdminV2Regressions):
     async def respond(self, route):
         path=urlparse(route.request.url).path
+        if path == '/api/admin/configs':
+            return await route.fulfill(json={'items': [], 'total': 0, 'page': 1, 'page_size': 20})
         if path in ['/api/knowledge/settings/parsing','/api/knowledge/settings/parsing/status']:
             self.requests.append({'method':route.request.method,'path':path,'body':None})
             if path.endswith('/status'):
@@ -30,16 +32,18 @@ class ReleaseKnowledgeNavigationRegressions(KnowledgeAdminV2Regressions):
                 await expect(self.page.locator('.admin-navigation a.is-active')).to_have_text('存储管理')
         self.assertFalse(any(item['path'].startswith('/api/knowledge/') for item in self.requests))
 
-    async def test_config_create_cannot_edit_knowledge_defaults_or_parsing(self):
-        self.user.update(is_admin=False, permissions=rights('system:configs','create'))
+    async def test_notice_setting_permission_cannot_open_knowledge_defaults(self):
+        self.user.update(is_admin=False, permissions=rights('system:notice_settings','create'))
         await self.page.goto(self.origin+'/knowledge/settings')
-        await expect(self.page.get_by_role('heading',name='知识库默认配置',exact=True)).to_be_visible()
-        await expect(self.page.get_by_role('button',name='保存配置',exact=True)).to_have_count(0)
-        await expect(self.page.get_by_role('spinbutton',name='默认切片大小',exact=True)).to_be_disabled()
-        self.assertFalse(self.patches())
+        await expect(self.page).to_have_url(self.origin+'/admin/configs')
+        self.assertFalse(any(item['path'].startswith('/api/knowledge/settings') for item in self.requests))
 
-    async def test_config_update_can_edit_defaults_without_knowledge_or_credential_access(self):
-        self.user.update(is_admin=False, permissions=rights('system:configs','update'))
+    async def test_defaults_editor_has_an_entry_without_knowledge_or_credential_access(self):
+        self.user.update(is_admin=False, permissions=rights('platform:knowledge_settings','update'))
+        await self.page.goto(self.origin+'/access')
+        entry = self.page.get_by_role('navigation',name='主导航').get_by_role('link',name='知识库默认配置',exact=True)
+        await entry.click()
+        await expect(self.page).to_have_url(self.origin+'/knowledge/settings')
         await self.page.goto(self.origin+'/admin/knowledge-settings')
         await expect(self.page).to_have_url(self.origin+'/knowledge/settings')
         await expect(self.page.get_by_role('button',name='保存配置',exact=True)).to_be_enabled()
@@ -67,7 +71,7 @@ class ReleaseAdminNavigationRegressions(PermissionTreeRegressions):
             (['update','toggle'],True,False,True),
         ]:
             with self.subTest(actions=actions,exists=exists,active=active):
-                self.user.update(is_admin=False,permissions=rights('system:configs',*actions))
+                self.user.update(is_admin=False,permissions=rights('system:notice_settings',*actions))
                 self.configs=[{**original,'is_active':active}] if exists else []
                 await self.page.goto(self.origin+'/admin/configs')
                 switch=self.page.get_by_role('switch',name='在平台展示公告',exact=True)

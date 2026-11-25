@@ -11,11 +11,12 @@ class Principal:
     username: str
     is_admin: bool
     permissions: frozenset[str] = frozenset()
+    department_id: UUID | None = None
 
     def personal(self) -> 'Principal':
         """Keep functional rights while enforcing ordinary ownership and explicit ACLs."""
         permissions = PERMISSION_CODES if self.is_admin else self.permissions
-        return Principal(self.id, self.username, False, permissions)
+        return Principal(self.id, self.username, False, permissions, self.department_id)
 
     def has_any_permission(self, *permissions: str) -> bool:
         return self.is_admin or any(is_granted(self.permissions, permission) for permission in permissions)

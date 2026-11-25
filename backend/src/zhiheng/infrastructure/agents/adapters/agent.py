@@ -395,7 +395,7 @@ class AgentProvider:
         if len(messages) != len(self._message_ids):
             raise ValueError('Chat Agent message identities do not match the frozen input')
         prefix: list[AnyMessage] = []
-        history: list[AnyMessage] = []
+        history: list[AnyMessage | RemoveMessage] = []
         for message, identity in zip(messages, self._message_ids, strict=True):
             normalized = _normalize_message(message)
             normalized.id = identity
@@ -407,10 +407,9 @@ class AgentProvider:
                 raise ValueError('Incremental chat requires an accepted checkpoint')
             return prefix, history
         # Full frozen seeds create a new branch without appending duplicate history.
-        inputs: list[AnyMessage | RemoveMessage] = list(history)
         if self._checkpointer is not None:
-            inputs.insert(0, RemoveMessage(id=REMOVE_ALL_MESSAGES))
-        return prefix, inputs
+            history.insert(0, RemoveMessage(id=REMOVE_ALL_MESSAGES))
+        return prefix, history
 
     async def _agent_input(
         self,

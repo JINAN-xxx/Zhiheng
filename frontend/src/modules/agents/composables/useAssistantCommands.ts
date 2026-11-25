@@ -5,14 +5,23 @@ import type { ContextTicket, RequestScope } from '../../../shared/http.ts'
 import { createRequestId } from '../../../shared/requestId.ts'
 import { identity } from '../../identity/public.ts'
 import { isPreparation } from '../../knowledge/public.ts'
-import { createAssistantConversation, sendAssistantMessage } from '../api/conversations.ts'
+import {
+  createAssistantConversation,
+  getAssistantSubmissionReceipt,
+  sendAssistantMessage
+} from '../api/conversations.ts'
 import type {
   AssistantConversation,
   AssistantTurn,
   getAssistantConversation
 } from '../api/conversations.ts'
-import { parseAssistantAttachments } from '../api/conversations.ts'
 import type { AssistantAttachment } from '../api/conversations.ts'
+import {
+  assistantPendingKey,
+  decodeAssistantSubmission,
+  encodeAssistantSubmission
+} from '../pendingStorage.ts'
+import type { AssistantSubmission } from '../pendingStorage.ts'
 import type { QueuedFile } from '../../../shared/attachmentQueue.ts'
 import type { useAssistantRunObservation } from './useAssistantRunObservation.ts'
 
@@ -25,17 +34,13 @@ export interface AssistantOutgoingTurn {
   runId: string | null
   error: string
 }
-interface PendingAssistantSend {
-  owner: string
-  agent: string
-  conversationId: string | null
-  createId: string
-  requestId: string
+interface AssistantInput {
   message: string
   attachments: AssistantAttachment[]
 }
 interface AssistantCommandsOptions {
   agentId: string
+  plaza: boolean
   selected: Ref<AssistantConversation | null>
   turns: Ref<AssistantTurn[]>
   outgoing: Ref<AssistantOutgoingTurn | null>
@@ -46,7 +51,6 @@ interface AssistantCommandsOptions {
   queuedFiles: Ref<QueuedFile[]>
   clearFiles: () => void
   canSend: () => boolean
-  conversationId: () => string
   openPendingConversation: (id: string) => Promise<void>
   conversationCreated: (id: string) => Promise<void>
   readDetail: (id: string, context: ContextTicket) => Promise<AssistantConversation | undefined>
@@ -57,6 +61,7 @@ interface AssistantCommandsOptions {
 export function useAssistantCommands(options: AssistantCommandsOptions) {
   const {
     agentId,
+    plaza,
     selected,
     turns,
     outgoing,
@@ -70,9 +75,13 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
   } = options
   const draft = ref('')
   const sending = ref(false)
-  const pending = ref<PendingAssistantSend | null>(null)
+  const pending = ref<AssistantSubmission | null>(null)
+  const pendingInput = ref<AssistantInput | null>(null)
+  const retryInput = ref(false)
+  const confirming = ref(false)
+  const confirmationNeeded = computed(() => Boolean(pending.value && !retryInput.value))
   const recoveryBlocked = ref(false)
-  const pendingKey = () => `zhiheng:assistant:${identity.value?.id ?? ''}:${agentId}:pending`
+  const pendingKey = () => assistantPendingKey(identity.value?.id ?? '', agentId, plaza)
   const outgoingVisible = computed(() =>
     Boolean(
       outgoing.value &&
@@ -103,51 +112,31 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
       error: ''
     }
   }
-  function savePending(value: PendingAssistantSend): void {
-    sessionStorage.setItem(pendingKey(), JSON.stringify(value))
+  function savePending(value: AssistantSubmission): void {
+    if (value.owner !== identity.value?.id) return
+    sessionStorage.setItem(
+      assistantPendingKey(value.owner, agentId, plaza),
+      encodeAssistantSubmission(value)
+    )
     pending.value = value
   }
   function clearPending(): void {
     sessionStorage.removeItem(pendingKey())
     pending.value = null
+    pendingInput.value = null
+    retryInput.value = false
   }
   function restorePending(): void {
     try {
       const raw = sessionStorage.getItem(pendingKey())
       if (!raw) return
-      const data: unknown = JSON.parse(raw)
-      if (typeof data !== 'object' || data === null) throw new Error('invalid')
-      const value = data as Record<string, unknown>
-      if (
-        typeof value.owner !== 'string' ||
-        value.owner !== identity.value?.id ||
-        value.agent !== agentId ||
-        typeof value.createId !== 'string' ||
-        typeof value.requestId !== 'string' ||
-        typeof value.message !== 'string' ||
-        !(value.conversationId === null || typeof value.conversationId === 'string')
-      )
+      const value = decodeAssistantSubmission(raw)
+      if (!value || value.owner !== identity.value?.id || value.agent !== agentId)
         throw new Error('invalid')
-      pending.value = {
-        owner: value.owner,
-        agent: agentId,
-        createId: value.createId,
-        requestId: value.requestId,
-        message: value.message,
-        attachments: parseAssistantAttachments(value.attachments),
-        conversationId: value.conversationId
-      }
-      if (!value.conversationId && !options.conversationId())
-        showOutgoing(
-          value.requestId,
-          value.message,
-          null,
-          'uncertain',
-          pending.value?.attachments ?? []
-        )
+      pending.value = value
     } catch {
       recoveryBlocked.value = true
-      error.value = '无法读取原提交，请先核对历史对话及浏览器会话存储，再刷新重试。'
+      error.value = '无法读取待确认记录，请刷新后查看历史对话。'
     }
   }
 
@@ -176,37 +165,77 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
       )
     } else if (
       !outgoing.value &&
+      pendingInput.value &&
       pending.value?.conversationId === id &&
       !result.turns.some((turn) => turn.requestId === pending.value?.requestId)
     ) {
       showOutgoing(
         pending.value.requestId,
-        pending.value.message,
+        pendingInput.value.message,
         id,
         'uncertain',
-        pending.value.attachments
+        pendingInput.value.attachments
       )
     }
   }
 
+  async function confirmReceipt(intent: AssistantSubmission): Promise<void> {
+    const context = conversationScope.current()
+    confirming.value = true
+    error.value = ''
+    try {
+      const receipt = await getAssistantSubmissionReceipt(
+        agentId,
+        intent.requestId,
+        intent.createId,
+        intent.conversationId,
+        context.signal,
+        plaza
+      )
+      if (!context.isCurrent()) return
+      if (receipt.accepted) {
+        if (!receipt.conversationId) throw new Error('无法读取原提交所属的对话')
+        clearPending()
+        await options.openPendingConversation(receipt.conversationId)
+        return
+      }
+      // The original submission may still be preprocessing. Re-entered input must use its request ID.
+      const conversationId = receipt.conversationId ?? intent.conversationId
+      savePending({ ...intent, conversationId })
+      if (conversationId !== (selected.value?.id ?? null))
+        await options.openPendingConversation(conversationId ?? '')
+      if (identity.value?.id === intent.owner && pending.value?.requestId === intent.requestId)
+        retryInput.value = true
+    } catch (reason) {
+      if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+    } finally {
+      if (identity.value?.id === intent.owner) confirming.value = false
+    }
+  }
+
   async function send(retry = false): Promise<void> {
-    if (sending.value || loading.value || runs.running.value || !identity.value) return
+    if (sending.value || confirming.value || loading.value || runs.running.value || !identity.value)
+      return
     if (
       !retry &&
       (!options.canSend() ||
-        pending.value ||
+        confirmationNeeded.value ||
         (!draft.value.trim() && !options.queuedFiles.value.length) ||
         options.queuedFiles.value.some((file) => file.status !== 'ready' || !file.fileId))
     )
       return
-    const intent = retry
-      ? pending.value
+    const saved = pending.value
+    if (retry && saved && !pendingInput.value) return confirmReceipt(saved)
+    const intent = saved ?? {
+      owner: identity.value.id,
+      agent: agentId,
+      conversationId: selected.value?.id ?? null,
+      createId: createRequestId(),
+      requestId: createRequestId()
+    }
+    const input = retry
+      ? pendingInput.value
       : {
-          owner: identity.value.id,
-          agent: agentId,
-          conversationId: selected.value?.id ?? null,
-          createId: createRequestId(),
-          requestId: createRequestId(),
           message: draft.value.trim() || '请分析附件。',
           attachments: options.queuedFiles.value.map((file) => ({
             file_id: file.fileId!,
@@ -215,10 +244,11 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
             size: file.sizeBytes
           }))
         }
-    if (!intent) return
+    if (!input) return
     // Persist the original identity before any mutation, so uncertain responses can be retried.
     try {
       savePending(intent)
+      pendingInput.value = input
     } catch {
       error.value = '无法保存提交恢复信息，请检查浏览器存储后重试'
       return
@@ -229,22 +259,28 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
     }
     if (intent.owner !== identity.value?.id) return
     const context = conversationScope.current()
+    retryInput.value = false
     runs.reset()
     sending.value = true
     error.value = ''
     showOutgoing(
       intent.requestId,
-      intent.message,
+      input.message,
       intent.conversationId,
       'submitting',
-      intent.attachments
+      input.attachments
     )
     options.clearFiles()
     draft.value = ''
     void scroll()
     try {
       if (!intent.conversationId) {
-        const value = await createAssistantConversation(agentId, intent.createId, context.signal)
+        const value = await createAssistantConversation(
+          agentId,
+          intent.createId,
+          context.signal,
+          plaza
+        )
         if (!context.isCurrent()) return
         selected.value = value
         intent.conversationId = value.id
@@ -256,10 +292,10 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
       const result = await sendAssistantMessage(
         agentId,
         intent.conversationId,
-        intent.message,
+        input.message,
         intent.requestId,
         context.signal,
-        intent.attachments.map((file) => file.file_id)
+        input.attachments.map((file) => file.file_id)
       )
       if (!context.isCurrent()) return
       clearPending()
@@ -281,7 +317,11 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
       if (context.isCurrent() && !isAborted(reason)) {
         const definitive =
           reason instanceof ApiError && reason.status < 500 && reason.status !== 408
-        if (definitive) clearPending()
+        if (definitive && !saved) clearPending()
+        if (saved && reason instanceof ApiError && reason.code === 'idempotency_conflict') {
+          pendingInput.value = null
+          outgoing.value = null
+        }
         if (outgoing.value) {
           outgoing.value.error = errorMessage(reason)
           outgoing.value.stage = pending.value ? 'uncertain' : 'failed'
@@ -298,11 +338,14 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
     draft.value = ''
     options.clearFiles()
     sending.value = false
+    retryInput.value = false
   }
 
   function resetIdentity(): void {
     resetConversation()
     pending.value = null
+    pendingInput.value = null
+    confirming.value = false
     recoveryBlocked.value = false
   }
 
@@ -310,6 +353,9 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
     draft,
     sending,
     pending,
+    confirmationNeeded,
+    retryInput,
+    confirming,
     recoveryBlocked,
     outgoingVisible,
     outgoingRun,

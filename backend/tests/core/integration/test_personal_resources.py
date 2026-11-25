@@ -73,7 +73,7 @@ async def test_administrator_cannot_read_or_mutate_another_users_skill(admin: ht
         assert (await member.get(f'/api/skills/{theirs["id"]}')).status_code == 200
 
 
-async def test_builtin_copies_are_initialized_when_creating_accounts_and_are_independent(
+async def test_new_accounts_install_their_own_skills_independently_of_the_admin_library(
     admin: httpx.AsyncClient,
     app: object,
 ) -> None:
@@ -84,22 +84,16 @@ async def test_builtin_copies_are_initialized_when_creating_accounts_and_are_ind
     from zhiheng.modules.skills.orm import SkillRevision
 
     mine = (await admin.get('/api/skills/available')).json()
-    async with account(admin, app, *grants('platform:skills', 'use')) as (member, _, _):
-        theirs = (await member.get('/api/skills/available')).json()
-        assert {row['slug'] for row in mine} == {row['slug'] for row in theirs}
-        assert {row['id'] for row in mine}.isdisjoint(row['id'] for row in theirs)
-        assert {row['revision_id'] for row in mine}.isdisjoint(row['revision_id'] for row in theirs)
+    async with account(admin, app, *grants('platform:skills', 'use', 'create', 'toggle')) as (member, _, _):
+        assert (await member.get('/api/skills/available')).json() == []
         original = mine[0]
-        personal = next(row for row in theirs if row['slug'] == original['slug'])
+        personal = await install(member, original['slug'], 'Personal customization')
         revision_ids = [UUID(original['revision_id']), UUID(personal['revision_id'])]
         query = select(SkillRevision.id, SkillRevision.package_bytes).where(SkillRevision.id.in_(revision_ids))
         async with app.state.container.database.sessions() as session:
             packages = dict((await session.execute(query)).all())
-        assert len(packages) == 2 and len(set(packages.values())) == 1
+        assert len(packages) == 2 and len(set(packages.values())) == 2
 
-        rejected = await admin.delete(f'/api/skills/{original["id"]}', headers={'content-type': 'application/json'})
-        assert rejected.status_code == 403, rejected.text
-        assert rejected.json()['error']['code'] == 'builtin_skill_protected'
         assert (await member.get(f'/api/skills/{original["id"]}')).status_code == 404
         assert (await admin.get(f'/api/skills/{personal["id"]}')).status_code == 404
 
@@ -210,7 +204,7 @@ async def test_account_resources_share_the_account_transaction_and_reads_do_not_
             user = await container.accounts.create_user(
                 session, username='rollback-user', password='platform-test-password'
             )
-            assert len(await container.skills.available(session, user.id)) == 5
+            assert await container.skills.available(session, user.id) == []
             raise RuntimeError('rollback account')
     async with container.database.sessions() as session:
         assert await session.scalar(select(IdentityUser.id).where(IdentityUser.username == 'rollback-user')) is None

@@ -33,4 +33,12 @@ class OutboxStore:
         return [OutboxDelivery(row[0], row[1], row[2], row[3]) for row in rows]
 
     async def mark_sent(self, session: AsyncSession, outbox_id: UUID) -> None:
+        await self._mark_attempt(session, outbox_id)
+
+    async def defer(self, session: AsyncSession, outbox_id: UUID) -> None:
+        """Apply the existing retry delay without treating the Run itself as delivered."""
+        await self._mark_attempt(session, outbox_id)
+
+    @staticmethod
+    async def _mark_attempt(session: AsyncSession, outbox_id: UUID) -> None:
         await session.execute(update(Outbox).where(Outbox.id == outbox_id).values(sent_at=utcnow()))

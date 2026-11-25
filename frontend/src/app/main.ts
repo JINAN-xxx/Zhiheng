@@ -4,13 +4,20 @@ import '../shared/styles/console-tokens.css'
 import '../shared/styles/workspace.scss'
 import '../shared/styles/zhiheng.scss'
 import '../shared/styles.css'
-import { clearIdentity, identity, restoreIdentity } from '../modules/identity/public.ts'
+import { clearAssistantPendingExcept } from '../modules/agents/public.ts'
+import {
+  clearIdentity,
+  identity,
+  restoreIdentity,
+  setIdentitySessionBoundary
+} from '../modules/identity/public.ts'
 import { http } from '../shared/http.ts'
 import { initializeLightTheme } from '../shared/theme.ts'
 import App from './App.vue'
 import { router } from './router.ts'
 import { accessRedirect } from './access.ts'
 initializeLightTheme()
+setIdentitySessionBoundary(clearAssistantPendingExcept)
 http.setUnauthorizedHandler(() => {
   clearIdentity()
   if (!router.currentRoute.value.meta.public) void router.replace('/login')

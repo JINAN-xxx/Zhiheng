@@ -14,10 +14,9 @@ import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import WorkspacePanel from '../../../shared/components/WorkspacePanel.vue'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
-import { identity } from '../../identity/public.ts'
+import { canUseCapability } from '../../identity/public.ts'
 import { getModels } from '../../models/public.ts'
 import type { ChatModel } from '../../models/public.ts'
-import { hasAdminPermission } from '../access.ts'
 import { getKnowledgeDefaults, updateKnowledgeDefaults } from '../api/knowledge.ts'
 
 const scope = new RequestScope(),
@@ -26,7 +25,7 @@ const loading = ref(false),
   saving = ref(false),
   error = ref('')
 const models = ref<ChatModel[]>([])
-const writable = computed(() => hasAdminPermission(identity.value, 'configs', 'update'))
+const writable = computed(() => canUseCapability('knowledge_settings', 'update'))
 const form = reactive({
   default_embed_model_id: null as string | null,
   default_rerank_model_id: null as string | null,

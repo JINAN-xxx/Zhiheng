@@ -46,7 +46,7 @@ class KnowledgeDefaultsService:
         self.models = models
 
     async def get(self, session: AsyncSession, principal: Principal) -> KnowledgeDefaultsInfo:
-        principal.require_permission('system:configs:read')
+        principal.require_permission('platform:knowledge_settings:read')
         row = await session.get(KnowledgeDefaults, 1)
         if row is None:
             raise AppError('knowledge_defaults_missing', '知识服务配置尚未初始化', 409)
@@ -55,7 +55,7 @@ class KnowledgeDefaultsService:
     async def patch(
         self, session: AsyncSession, principal: Principal, body: KnowledgeDefaultsPatch
     ) -> KnowledgeDefaultsInfo:
-        principal.require_permission('system:configs:update')
+        principal.require_permission('platform:knowledge_settings:update')
         await session.execute(insert(KnowledgeDefaults).values(id=1).on_conflict_do_nothing())
         row = await session.get(KnowledgeDefaults, 1, with_for_update=True, populate_existing=True)
         assert row is not None

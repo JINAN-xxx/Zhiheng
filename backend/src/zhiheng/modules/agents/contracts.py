@@ -49,6 +49,9 @@ class AgentConfig(BaseModel):
             raise ValueError('Name and unique selections are required')
         return self
 
+    def execution_config(self) -> dict[str, object]:
+        return self.model_dump(exclude={'name', 'description', 'welcome_message'})
+
 
 class AgentCreate(AgentConfig):
     client_request_id: UUID | None = None
@@ -75,6 +78,27 @@ class VersionRequest(BaseModel):
     expected_version: int = Field(strict=True, ge=1)
 
 
+class PlazaPublishRequest(VersionRequest):
+    department_id: UUID | None = None
+    allow_knowledge: bool = Field(default=False, strict=True)
+
+
+class PlazaConfig(AgentConfig):
+    department_id: UUID | None = None
+    allow_knowledge: bool = Field(default=False, strict=True)
+
+    def assistant_config(self) -> AgentConfig:
+        return AgentConfig.model_validate(self.model_dump(include=set(AgentConfig.model_fields)))
+
+    def includes(self, department_id: UUID | None) -> bool:
+        return self.department_id is None or self.department_id == department_id
+
+
+class PlazaDepartment(BaseModel):
+    id: UUID
+    name: str
+
+
 class AgentInfo(AgentConfig):
     id: UUID
     owner_id: UUID
@@ -82,6 +106,8 @@ class AgentInfo(AgentConfig):
     status: Literal['enabled', 'disabled']
     created_at: datetime
     updated_at: datetime
+    plaza_version: int | None = None
+    plaza_department_id: UUID | None = None
 
     @property
     def enabled(self) -> bool:
@@ -103,6 +129,17 @@ class AgentSummary(BaseModel):
     id: UUID
     name: str
     description: str
+
+
+class PlazaAssistant(AgentSummary):
+    welcome_message: str
+    plaza_version: int = Field(strict=True, ge=1)
+    can_start: bool = True
+
+
+class PlazaAssistantPage(BaseModel):
+    items: list[PlazaAssistant]
+    total: int
 
 
 class AgentMessage(BaseModel):

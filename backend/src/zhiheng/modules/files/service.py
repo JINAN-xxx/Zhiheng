@@ -1,8 +1,8 @@
 """File identity, authorization, integrity and explicit domain composition."""
 
 import hashlib
-from collections.abc import Awaitable, Callable
-from datetime import timedelta
+from collections.abc import Awaitable, Callable, Sequence
+from datetime import datetime, timedelta
 from typing import Literal, cast
 from uuid import UUID
 
@@ -208,6 +208,7 @@ class FileService:
         manage: bool = False,
         active: bool = False,
         lock: bool = False,
+        fresh: bool = False,
     ) -> FileRecord:
         source_authorized = False
         if lock and not manage:
@@ -215,7 +216,9 @@ class FileService:
         else:
             query = select(FileRecord).where(FileRecord.id == file_id)
             if lock:
-                query = query.with_for_update().execution_options(populate_existing=True)
+                query = query.with_for_update()
+            if lock or fresh:
+                query = query.execution_options(populate_existing=True)
             candidate = await session.scalar(query)
             if candidate is None:
                 raise AppError('file_not_found', '文件不存在', 404)
@@ -231,7 +234,7 @@ class FileService:
         else:
             allowed = library or self.managed(principal, row)
             if not allowed and row.status == 'active' and (row.expires_at is None or row.expires_at > utcnow()):
-                grant = await session.get(FileGrant, (row.id, principal.id), populate_existing=lock)
+                grant = await session.get(FileGrant, (row.id, principal.id), populate_existing=lock or fresh)
                 effective = grant is not None and (grant.expires_at is None or grant.expires_at > utcnow())
                 allowed = not (effective and grant is not None and grant.effect == 'deny') and (
                     row.access == 'public'
@@ -241,7 +244,7 @@ class FileService:
 
         if row.source_file_id is not None and not manage:
             if not source_authorized:
-                await self._require(session, principal, row.source_file_id, active=True)
+                await self._require(session, principal, row.source_file_id, active=True, fresh=fresh)
             allowed = True
         if not allowed or (
             active
@@ -260,7 +263,7 @@ class FileService:
         return await self.info(session, await self._require(session, principal, file_id, active=active, lock=lock))
 
     async def ensure_readable(self, session: AsyncSession, principal: Principal, file_id: UUID) -> None:
-        await self._require(session, principal, file_id, active=True)
+        await self._require(session, principal, file_id, active=True, fresh=True)
 
     async def active_original_ids(self, session: AsyncSession, file_ids: set[UUID]) -> set[UUID]:
         """Check file lifecycle after the caller has checked the owning resource's ACL."""
@@ -280,15 +283,40 @@ class FileService:
         )
 
     async def info(self, session: AsyncSession, row: FileRecord) -> FileInfo:
-        count = await session.scalar(
-            select(func.count()).select_from(FileReference).where(FileReference.file_id == row.id)
+        return (await self.info_many(session, (row,)))[0]
+
+    async def info_many(self, session: AsyncSession, rows: Sequence[FileRecord]) -> list[FileInfo]:
+        """Project only the already selected records, in their original order."""
+        if not rows:
+            return []
+        ids = bindparam('projected_file_ids', list(dict.fromkeys(row.id for row in rows)), type_=ARRAY(Uuid()))
+        reference_rows = await session.execute(
+            select(FileReference.file_id, func.count())
+            .where(FileReference.file_id == any_(ids))
+            .group_by(FileReference.file_id)
         )
-        grants = list(await session.scalars(select(FileGrant).where(FileGrant.file_id == row.id)))
-        expiries = [g.expires_at for g in grants if g.expires_at is not None and g.expires_at > utcnow()]
+        counts = dict(reference_rows.tuples().all())
+        earliest_future_expiry = func.min(FileGrant.expires_at).filter(FileGrant.expires_at > utcnow())
+        grants = {
+            file_id: (count, expires_at)
+            for file_id, count, expires_at in await session.execute(
+                select(FileGrant.file_id, func.count(), earliest_future_expiry)
+                .where(FileGrant.file_id == any_(ids))
+                .group_by(FileGrant.file_id)
+            )
+        }
+        return [
+            self._project_info(row, reference_count=counts.get(row.id, 0), grant_summary=grants.get(row.id, (0, None)))
+            for row in rows
+        ]
+
+    @staticmethod
+    def _project_info(row: FileRecord, *, reference_count: int, grant_summary: tuple[int, datetime | None]) -> FileInfo:
+        grant_count, nearest_expiry = grant_summary
         return FileInfo(
             storage_status=cast("Literal['normal','missing','quarantined','invalid','unknown']", row.storage_status),
-            acl_entry_count=len(grants),
-            acl_nearest_expire_at=min(expiries) if expiries else None,
+            acl_entry_count=grant_count,
+            acl_nearest_expire_at=nearest_expiry,
             id=row.id,
             original_filename=row.original_filename,
             purpose=row.purpose,
@@ -308,7 +336,7 @@ class FileService:
             retention_until=row.retention_until,
             created_at=row.created_at,
             updated_at=row.updated_at,
-            reference_count=count or 0,
+            reference_count=reference_count,
             source_file_id=row.source_file_id,
             parser_version=row.parser_version,
         )

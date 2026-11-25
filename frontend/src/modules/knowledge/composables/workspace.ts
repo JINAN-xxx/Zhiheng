@@ -1,8 +1,6 @@
 import { canUseCapability, canUseModule } from '../../identity/public.ts'
 import { createRequestId } from '../../../shared/requestId.ts'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { message as notice } from 'ant-design-vue'
 import {
   isDefiniteRejection,
   ApiError,
@@ -27,27 +25,29 @@ import { validChunks } from '../presentation.ts'
 import { useKnowledgeQuery } from './useKnowledgeQuery.ts'
 import { useKnowledgeUpload } from './useKnowledgeUpload.ts'
 import { useKnowledgeGraph } from './useKnowledgeGraph.ts'
+import { jobFinished, useKnowledgeJobObservation } from './useKnowledgeJobObservation.ts'
+import { useKnowledgeLocation } from './useKnowledgeLocation.ts'
 
 type EditorKind = 'create' | 'base' | 'createFolder' | 'folder' | 'rechunk'
-const jobFinished = (job: KnowledgeJob) =>
-  ['completed', 'partial', 'failed', 'cancelled', 'interrupted'].includes(job.status)
 
 export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => void) {
-  const route = useRoute(),
-    router = useRouter()
-  const baseId = computed(() =>
-    typeof route.params.baseId === 'string' ? route.params.baseId : ''
-  )
-  const view = computed(() =>
-    route.params.view === 'graph' ? 'graph' : route.params.view === 'query' ? 'query' : 'documents'
-  )
   const bases = ref<KnowledgeBaseListItem[]>([]),
     selected = ref<KnowledgeBase | null>(null)
   const folders = ref<KnowledgeFolder[]>([]),
     documents = ref<KnowledgeDocument[]>([]),
     jobs = ref<KnowledgeJob[]>([])
-  const folderId = ref<string | null>(null),
-    models = ref<ChatModel[]>([])
+  const {
+    baseId,
+    view,
+    folderId,
+    folderQuery,
+    folderFromRoute,
+    synchronizeFolderLocation,
+    selectFolder,
+    navigate,
+    back
+  } = useKnowledgeLocation(selected, folders)
+  const models = ref<ChatModel[]>([])
   const documentSearch = ref(''),
     nextDocumentCursor = ref<string | null>(null),
     loadingMoreDocuments = ref(false)
@@ -100,31 +100,24 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
   const scope = new RequestScope(),
     detailScope = new RequestScope(),
     writeScope = new RequestScope(),
-    pollScope = new RequestScope(),
     optionsScope = new RequestScope(),
     previewScope = new RequestScope(),
     referencesScope = new RequestScope(),
     accessScope = new RequestScope()
-  const notifiedJobs = new Set<string>()
-  function notifyCompleted(job: KnowledgeJob): void {
-    if (job.base_id !== baseId.value || job.status !== 'completed' || notifiedJobs.has(job.id))
-      return
-    notifiedJobs.add(job.id)
-    onJobCompleted?.(job)
-  }
-  watch(
+  const jobObservation = useKnowledgeJobObservation({
+    baseId,
+    selected,
     jobs,
-    (next, previous) => {
-      for (const job of next) {
-        if (previous.some((item) => item.id === job.id && !jobFinished(item))) notifyCompleted(job)
-      }
-    },
-    { flush: 'sync' }
-  )
+    observationError,
+    syncDetail: (observer) => loadDetail(true, observer),
+    syncOverview: (observer) => loadList(true, observer),
+    permissionDenied,
+    onDenied: denyProtectedDetail,
+    onCompleted: onJobCompleted
+  })
   const busy = computed(
     () => actionBusy.value || uploading.value || !!selected.value?.active_job_id
   )
-  let disposed = false
   const editor = reactive({
     open: false,
     kind: 'create' as EditorKind,
@@ -188,7 +181,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     retainAndResetUpload()
     accessScope.replace()
     scope.replace()
-    pollScope.replace()
+    jobObservation.stop()
     detailScope.replace()
     previewScope.replace()
     writeScope.replace()
@@ -220,8 +213,9 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     observationError.value = ''
     detailError.value = errorMessage(error)
   }
-  const permissionDenied = (error: unknown) =>
-    error instanceof ApiError && [401, 403, 404].includes(error.status)
+  function permissionDenied(error: unknown): boolean {
+    return error instanceof ApiError && [401, 403, 404].includes(error.status)
+  }
   async function loadDetail(
     silent = false,
     observer?: ContextTicket,
@@ -289,7 +283,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
       nextDocumentCursor.value = docs.nextCursor
       folders.value = dirs
       jobs.value = taskRows
-      synchronizeFolderLocation()
+      syncFolderDocuments()
       detailError.value = ''
       return true
     } catch (error) {
@@ -341,89 +335,15 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
       if (ticket.isCurrent()) loadingMoreDocuments.value = false
     }
   }
-  async function pollJobs(): Promise<void> {
-    if (disposed) return
-    const ticket = pollScope.replace(),
-      id = baseId.value
-    if (!id || !selected.value?.can_manage) return
-    const pendingIds = () => {
-      const ids = jobs.value.filter((job) => !jobFinished(job)).map((job) => job.id)
-      const activeId = selected.value?.active_job_id
-      if (activeId && !jobs.value.some((job) => job.id === activeId)) ids.push(activeId)
-      return [...new Set(ids)]
-    }
-    let failures = 0,
-      needsDetailSync = false,
-      needsOverviewSync = false
-    try {
-      while (
-        ticket.isCurrent() &&
-        id === baseId.value &&
-        (needsDetailSync || needsOverviewSync || pendingIds().length)
-      ) {
-        await waitForBackgroundObservation(ticket.signal, Math.min(1500 * 2 ** failures, 30_000))
-        try {
-          if (!needsDetailSync && !needsOverviewSync) {
-            const updates = await Promise.all(
-              pendingIds().map((jobId) => api.getJob(jobId, ticket.signal))
-            )
-            if (!ticket.isCurrent() || id !== baseId.value) return
-            for (const job of updates) {
-              const current = jobs.value.find((item) => item.id === job.id)
-              if (
-                current &&
-                (current.version > job.version || (jobFinished(current) && !jobFinished(job)))
-              )
-                continue
-              if (!current) jobs.value = [job, ...jobs.value]
-              else if (JSON.stringify(current) !== JSON.stringify(job))
-                jobs.value = jobs.value.map((item) => (item.id === job.id ? job : item))
-              if (jobFinished(job)) needsDetailSync = needsOverviewSync = true
-            }
-          }
-          if (needsDetailSync) {
-            const synced = await loadDetail(true, ticket)
-            if (!ticket.isCurrent() || id !== baseId.value) return
-            if (!synced) {
-              failures = Math.min(failures + 1, 5)
-              continue
-            }
-            needsDetailSync = false
-          }
-          if (needsOverviewSync) {
-            const synced = await loadList(true, ticket)
-            if (!ticket.isCurrent() || id !== baseId.value) return
-            if (!synced) {
-              failures = Math.min(failures + 1, 5)
-              continue
-            }
-            needsOverviewSync = false
-          }
-          failures = 0
-          observationError.value = ''
-        } catch (error) {
-          if (!ticket.isCurrent() || isAborted(error)) return
-          if (permissionDenied(error)) {
-            denyProtectedDetail(error)
-            return
-          }
-          failures = Math.min(failures + 1, 5)
-          observationError.value = errorMessage(error)
-        }
-      }
-    } catch (error) {
-      if (ticket.isCurrent() && !isAborted(error)) observationError.value = errorMessage(error)
-    }
-  }
   async function refresh(): Promise<void> {
     accessScope.replace()
-    const observer = pollScope.replace()
+    const observer = jobObservation.stop()
     await Promise.all([loadList(false, observer), loadDetail(false, observer)])
-    if (observer.isCurrent()) void pollJobs()
+    if (observer.isCurrent()) void jobObservation.observe()
   }
   async function acceptJob(job: KnowledgeJob): Promise<void> {
     if (job.base_id !== baseId.value || !selected.value) return
-    notifyCompleted(job)
+    jobObservation.notifyCompleted(job)
     jobs.value = [job, ...jobs.value.filter((item) => item.id !== job.id)]
     selected.value = {
       ...selected.value,
@@ -431,75 +351,19 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     }
     await refresh()
   }
-  const invalidFolderLocations = new Set<string>()
-  function folderFromRoute(available: KnowledgeFolder[]): string | null {
-    const value = route.query.folder
-    return typeof value === 'string' &&
-      available.some((folder) => folder.id === value && folder.base_id === baseId.value)
-      ? value
-      : null
+  function syncFolderDocuments(): boolean {
+    if (!synchronizeFolderLocation()) return false
+    documentSearch.value = ''
+    clearTimeout(documentSearchTimer)
+    return true
   }
-  function synchronizeFolderLocation(): void {
-    if (selected.value?.id !== baseId.value) return
-    const value = route.query.folder
-    const previous = folderId.value
-    const valid = folderFromRoute(folders.value)
-    folderId.value = valid
-    if (previous !== valid) {
-      documentSearch.value = ''
-      clearTimeout(documentSearchTimer)
+  watch(folderQuery, () => {
+    if (syncFolderDocuments() && view.value !== 'graph') {
+      documents.value = []
+      nextDocumentCursor.value = null
+      void loadDetail()
     }
-    if (value === undefined) return
-    if (!valid) {
-      const key = `${baseId.value}:${JSON.stringify(value)}`
-      if (!invalidFolderLocations.has(key)) {
-        invalidFolderLocations.add(key)
-        void notice.warning({
-          key: 'knowledge-folder-location',
-          content: '目录已失效或不属于当前知识库，已返回根目录',
-          duration: 3
-        })
-      }
-      const query = { ...route.query }
-      delete query.folder
-      void router.replace({ path: route.path, query, hash: route.hash })
-    }
-  }
-  async function selectFolder(id: string | null): Promise<void> {
-    if (selected.value?.id !== baseId.value) return
-    if (
-      id !== null &&
-      !folders.value.some((folder) => folder.id === id && folder.base_id === baseId.value)
-    )
-      return
-    const query = { ...route.query }
-    if (id) query.folder = id
-    else delete query.folder
-    await router.push({ path: route.path, query, hash: route.hash })
-  }
-  watch(
-    () => route.query.folder,
-    () => {
-      const previous = folderId.value
-      synchronizeFolderLocation()
-      if (folderId.value !== previous && view.value !== 'graph') {
-        documents.value = []
-        nextDocumentCursor.value = null
-        void loadDetail()
-      }
-    }
-  )
-  async function navigate(base: KnowledgeBase, destination: string): Promise<void> {
-    const query: Record<string, string> = {}
-    if (base.id === baseId.value && folderId.value) query.folder = folderId.value
-    await router.push({
-      path: `/knowledge/${encodeURIComponent(base.id)}/${destination === 'graph' ? 'graph' : destination === 'query' ? 'query' : 'documents'}`,
-      query
-    })
-  }
-  async function back(): Promise<void> {
-    await router.push('/knowledge')
-  }
+  })
   function openEditor(
     kind: EditorKind,
     item?: KnowledgeBase | KnowledgeFolder | KnowledgeDocument
@@ -782,7 +646,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     async (id) => {
       accessScope.replace()
       detailScope.replace()
-      pollScope.replace()
+      jobObservation.reset()
       query.resetQuery()
       previewScope.replace()
       writeScope.replace()
@@ -796,7 +660,6 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
       documentSearch.value = ''
       clearTimeout(documentSearchTimer)
       jobs.value = []
-      notifiedJobs.clear()
       folderId.value = null
       detailError.value = ''
       observationError.value = ''
@@ -807,7 +670,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
       if (id) {
         await loadDetail()
         if (id !== baseId.value || !selected.value) return
-        void pollJobs()
+        void jobObservation.observe()
         void query.restoreSelectedQuery(id)
       }
     },
@@ -840,7 +703,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
             if (!ticket.isCurrent()) return
             throw new Error('知识库状态暂未同步')
           }
-          if (ticket.isCurrent()) void pollJobs()
+          if (ticket.isCurrent()) void jobObservation.observe()
         } else selected.value = fresh
         if (ticket.isCurrent()) observationError.value = ''
         return
@@ -886,7 +749,6 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
   if (typeof document !== 'undefined') document.addEventListener('visibilitychange', resumeAccess)
   void loadList()
   onBeforeUnmount(() => {
-    disposed = true
     clearTimeout(documentSearchTimer)
     if (typeof window !== 'undefined') window.removeEventListener('focus', resumeAccess)
     if (typeof document !== 'undefined')
@@ -895,7 +757,6 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
       scope,
       detailScope,
       writeScope,
-      pollScope,
       optionsScope,
       previewScope,
       referencesScope,

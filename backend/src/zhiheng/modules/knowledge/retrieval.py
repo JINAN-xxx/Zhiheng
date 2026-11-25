@@ -21,6 +21,7 @@ from zhiheng.modules.knowledge.orm import (
     KnowledgeDocument,
     RetrievalIntent,
 )
+from zhiheng.modules.knowledge.retrieval_payload import validate_pending_payload, version_dependencies
 from zhiheng.modules.knowledge.service import KnowledgeService
 from zhiheng.modules.knowledge.vector import VectorSpec
 from zhiheng.modules.models.public import ModelBinding, ModelMessage
@@ -155,7 +156,7 @@ class RetrievalStore:
 
     async def find_state(self, session: AsyncSession, intent_id: UUID) -> RetrievalState | None:
         row = await session.get(RetrievalIntent, intent_id)
-        return self.state(self.record(row)) if row is not None else None
+        return self._execution_state(row) if row is not None else None
 
     async def state_for_run(self, session: AsyncSession, run_id: UUID, resource_id: UUID) -> RetrievalState | None:
         row = await session.scalar(
@@ -163,7 +164,7 @@ class RetrievalStore:
                 RetrievalIntent.resource_id == resource_id, RetrievalIntent.main_run_id == run_id
             )
         )
-        return self.state(self.record(row)) if row is not None else None
+        return self._execution_state(row) if row is not None else None
 
     async def pending(self, session: AsyncSession) -> list[tuple[UUID, str]]:
         return [
@@ -288,6 +289,24 @@ class RetrievalStore:
                 if current != item.source:
                     raise AppError('knowledge_preparation_stale', '知识来源权限或内容已变化', 409)
 
+    async def has_console_request(
+        self, session: AsyncSession, *, actor_id: UUID, resource_type: str, resource_id: UUID, request_id: UUID
+    ) -> bool:
+        return (
+            await session.scalar(
+                select(RetrievalIntent.id).where(
+                    RetrievalIntent.namespace_id == actor_id,
+                    RetrievalIntent.actor_id == actor_id,
+                    RetrievalIntent.owner_id == actor_id,
+                    RetrievalIntent.key_id.is_(None),
+                    RetrievalIntent.resource_type == resource_type,
+                    RetrievalIntent.resource_id == resource_id,
+                    RetrievalIntent.client_request_id == request_id,
+                )
+            )
+            is not None
+        )
+
     async def existing(
         self, session: AsyncSession, namespace_id: UUID, request_id: UUID, value: str
     ) -> RetrievalRecord | None:
@@ -318,7 +337,9 @@ class RetrievalStore:
             resource_id=resource_id,
             fingerprint=value,
             request=TypeAdapter(dict[str, object]).dump_python(request, mode='json'),
-            dependencies=TypeAdapter(dict[str, object]).dump_python(dependencies, mode='json'),
+            dependencies=TypeAdapter(dict[str, object]).dump_python(
+                version_dependencies(resource_type, request, dependencies), mode='json'
+            ),
             key_id=key_id,
             application_id=application_id,
             deadline=utcnow() + timedelta(seconds=body.timeout_seconds),
@@ -355,6 +376,10 @@ class RetrievalStore:
             deadline=row.deadline,
             deadline_seconds=(row.deadline - utcnow()).total_seconds(),
         )
+
+    def _execution_state(self, row: RetrievalIntent) -> RetrievalState:
+        validate_pending_payload(row.resource_type, row.request, row.dependencies)
+        return self.state(self.record(row))
 
     async def _row(self, session: AsyncSession, intent_id: UUID, *, lock: bool = False) -> RetrievalIntent:
         query = select(RetrievalIntent).where(RetrievalIntent.id == intent_id)
@@ -401,8 +426,13 @@ class RetrievalStore:
             return None
         if row.lease_until and row.lease_until > utcnow():
             return None
+        try:
+            state = self._execution_state(row)
+        except AppError as error:
+            await self._fail_row(session, row, 'failed', error.code, error.message)
+            return None
         row.tick_token, row.lease_until = uuid4(), min(row.deadline, utcnow() + timedelta(seconds=3))
-        return self.state(self.record(row)), row.tick_token
+        return state, row.tick_token
 
     async def _owned_row(self, session: AsyncSession, intent_id: UUID, token: UUID) -> RetrievalIntent:
         row = await self._row(session, intent_id, lock=True)

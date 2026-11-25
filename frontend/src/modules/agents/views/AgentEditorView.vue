@@ -17,7 +17,7 @@ const route = useRoute(),
   router = useRouter()
 const agentId = computed(() => (typeof route.params.id === 'string' ? route.params.id : ''))
 function close(): void {
-  void router.push('/agents')
+  void router.push({ path: '/agents', query: { tab: 'mine' } })
 }
 function saved(agent: Agent): void {
   if (!agentId.value) void router.replace(`/agents/${encodeURIComponent(agent.agentId)}`)

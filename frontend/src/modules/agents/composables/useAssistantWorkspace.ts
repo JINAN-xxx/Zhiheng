@@ -4,12 +4,12 @@ import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import type { ContextTicket } from '../../../shared/http.ts'
 import { getPreparation } from '../../knowledge/public.ts'
 import { identity, canUseCapability } from '../../identity/public.ts'
-import { getAgent } from '../api/index.ts'
+import { getAgent, getPlazaAssistant } from '../api/index.ts'
 import { message as toast } from 'ant-design-vue'
 import { createAttachmentQueue } from '../../../shared/attachmentQueue.ts'
 import type { QueuedFile } from '../../../shared/attachmentQueue.ts'
 import { uploadAssistantAttachment } from '../api/conversations.ts'
-import type { Agent } from '../api/index.ts'
+import type { Agent, PlazaAssistant } from '../api/index.ts'
 import { getAssistantConversation, getAssistantConversations } from '../api/conversations.ts'
 import type { AssistantConversation, AssistantTurn } from '../api/conversations.ts'
 import { useAssistantCommands } from './useAssistantCommands.ts'
@@ -20,7 +20,8 @@ export function useAssistantWorkspace() {
   const route = useRoute(),
     router = useRouter()
   const agentId = String(route.params.id)
-  const agent = ref<Agent | null>(null)
+  const plaza = route.name === 'assistant-plaza-chat'
+  const agent = ref<(PlazaAssistant & { status: Agent['status'] }) | null>(null)
   const conversations = ref<AssistantConversation[]>([])
   const selected = ref<AssistantConversation | null>(null)
   const turns = ref<AssistantTurn[]>([])
@@ -51,7 +52,7 @@ export function useAssistantWorkspace() {
   })
   const queuedFiles = ref<QueuedFile[]>([])
   const fileQueue = createAttachmentQueue({
-    upload: (file, signal) => uploadAssistantAttachment(agentId, file, signal),
+    upload: (file, signal) => uploadAssistantAttachment(agentId, file, signal, plaza),
     onChange: (files) => {
       queuedFiles.value = files
     }
@@ -60,21 +61,22 @@ export function useAssistantWorkspace() {
     queuedFiles.value.every((file) => file.status === 'ready' && file.fileId)
   )
   function addFiles(files: Iterable<File>): void {
-    if (!canSend.value || commands.pending.value) return
+    if (!canSend.value || commands.confirmationNeeded.value) return
     const result = fileQueue.add(files, true)
     if (result.rejected.length)
       void toast.warning([...new Set(result.rejected.map((file) => file.error))].join('；'))
   }
   function removeFile(id: string): void {
-    if (canSend.value && !commands.pending.value) fileQueue.remove(id)
+    if (canSend.value && !commands.confirmationNeeded.value) fileQueue.remove(id)
   }
   function retryFile(id: string): void {
-    if (canSend.value && !commands.pending.value) void fileQueue.retry(id)
+    if (canSend.value && !commands.confirmationNeeded.value) void fileQueue.retry(id)
   }
   const commands = useAssistantCommands({
     queuedFiles,
     clearFiles: () => fileQueue.clear(),
     agentId,
+    plaza,
     selected,
     turns,
     outgoing,
@@ -83,7 +85,6 @@ export function useAssistantWorkspace() {
     conversationScope,
     runs,
     canSend: () => canSend.value,
-    conversationId,
     openPendingConversation,
     conversationCreated,
     readDetail,
@@ -103,6 +104,7 @@ export function useAssistantWorkspace() {
       agent.value?.status === 'enabled' &&
       selected.value?.memoryAvailable !== false &&
       !commands.recoveryBlocked.value &&
+      !commands.confirming.value &&
       (!route.query.conversation || selected.value?.id === route.query.conversation) &&
       !loading.value &&
       !commands.sending.value &&
@@ -122,7 +124,7 @@ export function useAssistantWorkspace() {
     listLoading.value = true
     try {
       const cursor = append ? conversations.value.at(-1)?.id : undefined
-      const rows = await getAssistantConversations(agentId, context.signal, cursor)
+      const rows = await getAssistantConversations(agentId, context.signal, cursor, plaza)
       if (!context.isCurrent()) return
       conversations.value = append ? [...conversations.value, ...rows] : rows
       hasMore.value = rows.length === 50
@@ -184,7 +186,7 @@ export function useAssistantWorkspace() {
   }
   function select(id?: string): void {
     void router.replace({
-      name: 'assistant-chat',
+      name: plaza ? 'assistant-plaza-chat' : 'assistant-chat',
       params: { id: agentId },
       query: id ? { conversation: id } : {}
     })
@@ -192,9 +194,9 @@ export function useAssistantWorkspace() {
   async function conversationCreated(id: string): Promise<void> {
     skipConversation = id
     await router.replace({
-      name: 'assistant-chat',
+      name: plaza ? 'assistant-plaza-chat' : 'assistant-chat',
       params: { id: agentId },
-      query: { conversation: id }
+      query: id ? { conversation: id } : {}
     })
   }
   async function openPendingConversation(id: string): Promise<void> {
@@ -289,7 +291,12 @@ export function useAssistantWorkspace() {
       const controller = new AbortController()
       identityController = controller
       try {
-        const value = await getAgent(agentId, controller.signal)
+        const value = plaza
+          ? await getPlazaAssistant(agentId, controller.signal).then((item) => ({
+              ...item,
+              status: item.canStart === false ? ('disabled' as const) : ('enabled' as const)
+            }))
+          : await getAgent(agentId, controller.signal)
         if (!controller.signal.aborted) agent.value = value
       } catch (reason) {
         if (!controller.signal.aborted && !isAborted(reason)) error.value = errorMessage(reason)
@@ -317,6 +324,7 @@ export function useAssistantWorkspace() {
     removeFile,
     retryFile,
     agentId,
+    plaza,
     agent,
     conversations,
     selected,
@@ -338,6 +346,9 @@ export function useAssistantWorkspace() {
     draft: commands.draft,
     sending: commands.sending,
     pending: commands.pending,
+    confirmationNeeded: commands.confirmationNeeded,
+    retryInput: commands.retryInput,
+    confirming: commands.confirming,
     outgoingVisible: commands.outgoingVisible,
     outgoingRun: commands.outgoingRun,
     preparation: runs.preparation,

@@ -304,7 +304,7 @@ async def test_cursor_acl_revoked_rows_do_not_consume_page_slots(admin: httpx.As
         assert (
             await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
         ).status_code == 200
-        c, owner_app, key, caller = await setup_access(member, app)
+        c, owner_app, _key, caller = await setup_access(member, app)
         files = [await upload(admin) for _ in range(5)]
         version = 1
         for file in files:
@@ -328,6 +328,7 @@ async def test_cursor_acl_revoked_rows_do_not_consume_page_slots(admin: httpx.As
                     expected_version=version,
                 )
                 version = bound.application_version
+        key = await issue(member, owner_app['id'], scopes=['files:read'])
         for file in files[2:]:
             assert (
                 await admin.patch(
@@ -530,6 +531,7 @@ async def test_explicit_artifact_list_get_and_current_source_acl_before_limit(
             assert await c.resource_grants.source_usage(session, UUID(owner_app['id'])) == (2, 8)
 
     await bind_artifact()
+    key = await issue(admin, owner_app['id'], scopes=['files:read'])
     artifact_url = '/api/v1/files/' + str(artifact_id)
     assert (await admin.get(artifact_url, headers=auth(key))).status_code == 200
     assert str(artifact_id) in {

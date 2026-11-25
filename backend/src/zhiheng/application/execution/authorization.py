@@ -5,6 +5,7 @@ from zhiheng.application.agents.conversations import AssistantConversationServic
 from zhiheng.application.agents.execution import AssistantAgentService
 from zhiheng.application.chat.context import ChatContextService
 from zhiheng.application.execution.content_access import RunContentAccess
+from zhiheng.application.execution.run_policy import run_policy
 from zhiheng.application.knowledge.graph.runs import GraphRuns
 from zhiheng.application.knowledge.jobs import KnowledgeJobs
 from zhiheng.application.knowledge.origin import KnowledgeOriginGuard
@@ -65,65 +66,62 @@ class ModelExecutionAuthorization:
                 raise AppError('model_test_changed', '模型连接已变化，请重新试用', 409)
 
     async def _require_knowledge_run(self, claim: ClaimedRun) -> None:
-        if claim.resource_type in {'agent_preview', 'agent_invocation', 'work_turn'}:
-            async with self.database.sessions.begin() as session:
-                if claim.resource_type in {'agent_preview', 'agent_invocation', 'work_turn'}:
-                    principal = await self.identity.principal_for_user(session, claim.owner_id)
-                    await self.run_content.require_personal(session, principal, claim.resource_type, claim.resource_id)
-                await self.knowledge_preparation.require_run_bases(session, claim.id, claim.resource_id)
+        async with self.database.sessions.begin() as session:
+            principal = await self.identity.principal_for_user(session, claim.owner_id)
+            await self.run_content.require_personal(session, principal, claim.resource_type, claim.resource_id)
+            await self.knowledge_preparation.require_run_bases(session, claim.id, claim.resource_id)
 
     async def _require_platform(self, claim: ClaimedRun) -> None:
-        if claim.resource_type in {
-            'chat',
-            'chat_summary',
-            'agent_chat',
-            'agent_summary',
-            'agent_preview',
-            'agent_invocation',
-            'work_turn',
-        }:
-            async with self.database.sessions() as session:
-                principal = await self.identity.principal_for_user(session, claim.owner_id)
-                if claim.resource_type == 'agent_invocation':
-                    require_capability(principal, 'agents', 'use')
-                else:
-                    require_execution_capabilities(principal, claim.resource_type)
-                for module in ModelRequest.model_validate(claim.payload).required_modules:
-                    require_capability(
-                        principal, module, 'query' if module == 'knowledge' else 'use' if module == 'skills' else 'read'
-                    )
+        async with self.database.sessions() as session:
+            principal = await self.identity.principal_for_user(session, claim.owner_id)
+            if claim.resource_type == 'agent_invocation':
+                require_capability(principal, 'agents', 'use')
+            else:
+                require_execution_capabilities(principal, claim.resource_type)
+            for module in ModelRequest.model_validate(claim.payload).required_modules:
+                require_capability(
+                    principal, module, 'query' if module == 'knowledge' else 'use' if module == 'skills' else 'read'
+                )
 
-    async def require(self, claim: ClaimedRun) -> None:  # noqa: PLR0912, PLR0915 - explicit policies for distinct execution resources
-        if claim.resource_type == 'work_agent_model':
+    async def require(self, claim: ClaimedRun) -> None:
+        policy = run_policy(claim.resource_type)
+        if policy.guard == 'workspace_model':
             if self.work_agent is None:
                 raise AppError('work_execution_unavailable', '工作空间执行服务尚未就绪', 503)
             await self.work_agent.guard_model(claim)
             return
-        await self._require_platform(claim)
-        await self._require_knowledge_run(claim)
-        if claim.resource_type in {'agent_chat', 'agent_preview', 'agent_invocation', 'agent_summary'}:
+        if policy.check_platform:
+            await self._require_platform(claim)
+        if policy.check_prepared_knowledge:
+            await self._require_knowledge_run(claim)
+        if policy.guard == 'work_turn':
+            # The platform and member/source checks above own this legacy path.
+            return
+        if policy.guard in {'assistant', 'assistant_key'}:
             await self.assistant_agent.guard(claim)
-            if claim.resource_type == 'agent_invocation':
+            if policy.guard == 'assistant_key':
                 async with self.database.sessions.begin() as session:
                     await self.keys.authorize_run(session, claim.id, scope='agents:invoke', agent_id=claim.resource_id)
             return
-        guards = {
-            'connection_test': self._require_test,
-            'chat': self.chat_context.guard,
-            'chat_summary': self.chat_context.guard,
-        }
-        if guard := guards.get(claim.resource_type):
-            await guard(claim)
+        if policy.guard == 'model_test':
+            await self._require_test(claim)
             return
-        if claim.resource_type == 'public':
+        if policy.guard == 'chat':
+            await self.chat_context.guard(claim)
+            return
+        if policy.guard == 'public_key':
             async with self.database.sessions.begin() as session:
                 await self.keys.authorize_run(session, claim.id, scope='models:invoke')
             return
-        if claim.resource_type == 'knowledge_graph':
+        if policy.guard == 'graph':
             await self.graph_runs.guard(claim)
             return
-        if claim.resource_type not in {'knowledge_embedding', 'knowledge_rerank'}:
+        if policy.guard == 'knowledge_step':
+            await self._require_knowledge_step(claim)
             return
+        raise AppError('execution_resource_unsupported', '运行类型不受推理执行器支持', 409)
+
+    async def _require_knowledge_step(self, claim: ClaimedRun) -> None:
         async with self.database.sessions.begin() as session:
             state = await self.knowledge_preparation.store.find_state(session, claim.resource_id)
             if state is not None:

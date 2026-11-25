@@ -78,11 +78,7 @@ async function updateRecordedTask(
   working.value = true
   error.value = ''
   try {
-    await updateTask(
-      task.taskId,
-      { ...changes, expected_version: task.version },
-      context.signal
-    )
+    await updateTask(task.taskId, { ...changes, expected_version: task.version }, context.signal)
     if (!context.isCurrent()) return
     rename.value = null
     await state.loadTasks()

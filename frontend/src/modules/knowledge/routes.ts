@@ -10,7 +10,7 @@ export const knowledgeRoutes: RouteRecordRaw[] = [
     path: '/knowledge/settings',
     name: 'knowledge-settings',
     component: () => import('./views/KnowledgeDefaultsView.vue'),
-    meta: { title: '知识库默认配置', permission: 'system:configs:read' }
+    meta: { title: '知识库默认配置', permission: 'platform:knowledge_settings:read' }
   },
   {
     path: '/knowledge/:baseId?/:view?',

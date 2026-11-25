@@ -57,11 +57,15 @@
         <template v-if="!loading && !error">
           <template v-for="(skill, index) in filteredSkills" :key="skill.skillSlug">
             <div
-              v-if="index === 0 || skill.sourceType !== filteredSkills[index - 1]?.sourceType"
+              v-if="
+                index === 0 ||
+                (skill.sourceType === 'upload') !==
+                  (filteredSkills[index - 1]?.sourceType === 'upload')
+              "
               class="skill-picker-group"
               role="presentation"
             >
-              {{ skill.sourceType === 'builtin' ? '预置技能' : '我的技能' }}
+              {{ skill.sourceType === 'upload' ? '我的技能' : '平台技能' }}
             </div>
             <button
               :id="optionId(skill.skillSlug)"

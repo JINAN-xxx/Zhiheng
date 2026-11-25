@@ -25,13 +25,10 @@ async def remove(admin: httpx.AsyncClient, skill: dict) -> httpx.Response:
     return await admin.delete(f'/api/skills/{skill["id"]}', headers={'Content-Type': 'application/json'})
 
 
-async def test_builtin_is_protected_and_upload_removal_keeps_revisions(admin: httpx.AsyncClient, app: object) -> None:
-    builtin = (await admin.get('/api/skills/available')).json()[0]
+async def test_removing_seeded_and_uploaded_skills_keeps_revisions(admin: httpx.AsyncClient, app: object) -> None:
+    seeded = (await admin.get('/api/skills/available')).json()[0]
     uploaded = await install(admin, 'direct-remove')
-    blocked = await remove(admin, builtin)
-    assert blocked.status_code == 403 and blocked.json()['error']['code'] == 'builtin_skill_protected'
-    assert (await admin.get(f'/api/skills/{builtin["id"]}')).json() == builtin
-    for skill in [uploaded]:
+    for skill in [seeded, uploaded]:
         response = await remove(admin, skill)
         assert response.status_code == 200, response.text
         assert (await admin.get(f'/api/skills/{skill["id"]}')).status_code == 404
@@ -379,9 +376,11 @@ async def test_0012_upgrade_freezes_legacy_confirmation_and_rejects_stale_legacy
         personal = next(
             row for row in await container.skills.available(session, principal.id) if row.slug == original['slug']
         )
-        await container.skills.set_status(session, principal, personal.id, status='disabled', expected_version=1)
+        await container.skills.set_status(
+            session, principal, personal.id, status='disabled', expected_version=personal.version
+        )
     async with container.database.sessions.begin() as session:
         assert await container.skills.confirm(session, principal, confirmed_id) == frozen
         with pytest.raises(AppError) as error:
             await container.skills.confirm(session, principal, preview_id)
-        assert error.value.code == 'builtin_skill_protected' and error.value.status_code == 403
+        assert error.value.code == 'skill_version_conflict' and error.value.status_code == 409

@@ -10,6 +10,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from zhiheng.application.execution.run_policy import run_policy
 from zhiheng.modules.billing.public import UsageService
 from zhiheng.modules.models.public import ModelRequest, ModelService
 from zhiheng.runtime.contracts import RunSnapshot
@@ -51,6 +52,8 @@ class RunAdmission:
         input_token_limit: int | None = None,
         search_unit_estimate: int | None = None,
     ) -> RunSnapshot:
+        if run_policy(resource_type).lane == 'workspace':
+            raise AppError('execution_resource_unsupported', '工作空间父任务须由工作空间执行器接纳', 409)
         # This financial safety estimate intentionally uses UTF-8 bytes, not the
         # model context counter or provider tokenizer. Actual usage settles later.
         input_tokens = sum(

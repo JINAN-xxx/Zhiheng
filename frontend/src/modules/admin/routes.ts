@@ -1,5 +1,5 @@
 import type { RouteRecordRaw } from 'vue-router'
-import { fileRoutes } from '../files/public.ts'
+import { hasAnyPermission, identity } from '../identity/public.ts'
 export const adminRoutes: RouteRecordRaw[] = [
   {
     path: '/admin',
@@ -13,7 +13,14 @@ export const adminRoutes: RouteRecordRaw[] = [
         component: () => import('./views/ApplicationsView.vue'),
         meta: { title: '应用治理', admin: true }
       },
-      ...fileRoutes.map((route) => ({ ...route, path: route.path.replace(/^\/admin\//, '') })),
+      {
+        path: 'storage',
+        alias: ['/knowledge/storage', '/files', '/system/file'],
+        name: 'files',
+        component: () => import('./views/StorageView.vue'),
+        meta: { title: '存储管理', activeMenu: '/admin' },
+        beforeEnter: () => hasAnyPermission(identity.value, 'ai:storage:read') || '/knowledge'
+      },
       {
         path: 'users',
         name: 'admin-users',
@@ -54,7 +61,7 @@ export const adminRoutes: RouteRecordRaw[] = [
         path: 'knowledge-settings',
         name: 'admin-knowledge-settings',
         redirect: '/knowledge/settings',
-        meta: { title: '知识服务', permission: 'system:configs:read' }
+        meta: { title: '知识库默认配置', permission: 'platform:knowledge_settings:read' }
       },
       {
         path: 'notices',

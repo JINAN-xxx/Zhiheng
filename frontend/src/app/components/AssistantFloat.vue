@@ -19,10 +19,12 @@ const route = useRoute()
 const panelId = useId()
 const root = ref<HTMLElement | null>(null)
 const launcher = ref<HTMLButtonElement | null>(null)
+const character = ref<HTMLElement | null>(null)
 const panel = ref<HTMLElement | null>(null)
 const opened = ref(false)
 const docked = ref(false)
 const dragging = ref(false)
+const dragLean = ref(0)
 // Store ratios in the available area so a saved desktop position also fits a phone.
 const position = ref({ x: 1, y: 1 })
 const viewport = ref({ left: 0, top: 0, width: window.innerWidth, height: window.innerHeight })
@@ -89,7 +91,9 @@ const launcherStyle = computed(() => ({
   left: `${anchor.value.left}px`,
   top: `${anchor.value.top}px`,
   width: `${size.value.width}px`,
-  height: `${size.value.height}px`
+  height: `${size.value.height}px`,
+  '--assistant-drag-lean': `${dragLean.value}deg`,
+  '--assistant-position-y': position.value.y
 }))
 const panelStyle = computed(() => {
   const v = viewport.value
@@ -104,9 +108,11 @@ const panelStyle = computed(() => {
     top: `${above >= v.top + inset.value.top ? above : clamp(anchor.value.top + size.value.height + 12, v.top + inset.value.top, v.top + v.height - height - inset.value.bottom)}px`
   }
 })
-let pointer: { id: number; x: number; y: number; left: number; top: number } | null = null
+let pointer: { id: number; x: number; y: number; left: number; top: number; lastX: number } | null =
+  null
 let suppressClick = false
 let observer: ResizeObserver | undefined
+let settleAnimation: Animation | undefined
 
 function savePreference(): void {
   if (!preferenceKey.value) return
@@ -122,6 +128,7 @@ function savePreference(): void {
 watch(
   preferenceKey,
   (key) => {
+    settleAnimation?.cancel()
     cancelDrag()
     opened.value = false
     position.value = { x: 1, y: 1 }
@@ -174,11 +181,19 @@ function cancelDrag(): void {
   pointer = null
   position.value.x = onLeft.value ? 0 : 1
   dragging.value = false
+  dragLean.value = 0
 }
 function startDrag(event: PointerEvent): void {
   if (docked.value || !event.isPrimary || event.button !== 0) return
+  settleAnimation?.cancel()
   suppressClick = false
-  pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, ...anchor.value }
+  pointer = {
+    id: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    lastX: event.clientX,
+    ...anchor.value
+  }
   launcher.value?.setPointerCapture(event.pointerId)
 }
 function moveDrag(event: PointerEvent): void {
@@ -188,6 +203,11 @@ function moveDrag(event: PointerEvent): void {
   if (!dragging.value && Math.hypot(dx, dy) < 6) return
   dragging.value = true
   opened.value = false
+  const horizontalStep = event.clientX - pointer.lastX
+  if (Math.abs(horizontalStep) >= 2) {
+    dragLean.value = Math.sign(horizontalStep) * 10
+    pointer.lastX = event.clientX
+  }
   moveTo(pointer.left + dx, pointer.top + dy)
 }
 function moveTo(left: number, top: number): void {
@@ -221,6 +241,13 @@ function finishDrag(event: PointerEvent): void {
   suppressClick = dragging.value
   cancelDrag()
   savePreference()
+  if (!suppressClick || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
+  const inward = onLeft.value ? 4 : -4
+  settleAnimation = character.value?.animate(
+    [{ translate: '0' }, { translate: `${inward}px` }, { translate: '0' }],
+    { duration: 210, delay: 200, easing: 'ease-out' }
+  )
 }
 async function togglePanel(event: MouseEvent): Promise<void> {
   // A drag also emits click in browsers; keyboard activation must remain available.
@@ -229,6 +256,7 @@ async function togglePanel(event: MouseEvent): Promise<void> {
     return
   }
   suppressClick = false
+  settleAnimation?.cancel()
   docked.value = false
   opened.value = !opened.value
   savePreference()
@@ -281,6 +309,7 @@ onMounted(() => {
   document.addEventListener('pointerdown', outsidePointer, true)
 })
 onBeforeUnmount(() => {
+  settleAnimation?.cancel()
   cancelDrag()
   observer?.disconnect()
   window.removeEventListener('resize', updateViewport)
@@ -377,10 +406,19 @@ onBeforeUnmount(() => {
         @click="togglePanel"
         @keydown="keyboardMove"
       >
-        <template v-if="docked"><RightOutlined v-if="onLeft" /><LeftOutlined v-else /></template>
-        <span v-else class="assistant-float__character"
-          ><XiaohengCharacter :animated="!dragging"
-        /></span>
+        <span v-if="docked" class="assistant-float__dock-icon" aria-hidden="true">
+          <RightOutlined v-if="onLeft" /><LeftOutlined v-else />
+        </span>
+        <Transition name="assistant-dock">
+          <span
+            v-if="!docked"
+            ref="character"
+            class="assistant-float__character"
+            aria-hidden="true"
+          >
+            <XiaohengCharacter :animated="!dragging" />
+          </span>
+        </Transition>
       </button>
     </div>
   </Teleport>
@@ -490,10 +528,13 @@ onBeforeUnmount(() => {
   background: #5145d8;
 }
 .assistant-float__launcher {
+  --assistant-character-width: 78px;
+  --assistant-character-height: 88px;
+  --assistant-edge-direction: 1;
   display: grid;
   place-items: center;
-  width: 78px;
-  height: 88px;
+  width: var(--assistant-character-width);
+  height: var(--assistant-character-height);
   padding: 0;
   border: 0;
   border-radius: 10px;
@@ -508,6 +549,9 @@ onBeforeUnmount(() => {
 .assistant-float__launcher.is-dragging {
   cursor: grabbing;
   transition: none;
+}
+.assistant-float__launcher.is-left {
+  --assistant-edge-direction: -1;
 }
 .assistant-float__character {
   display: block;
@@ -526,9 +570,56 @@ onBeforeUnmount(() => {
 .assistant-float__launcher.is-peeking:is(:hover, :focus-visible) .assistant-float__character {
   transform: none;
 }
-.assistant-float__launcher:not(.is-dragging):is(:hover, :focus-visible) :deep(.wave-arm) {
+.assistant-float__launcher.is-dragging .assistant-float__character {
+  transform: rotate(var(--assistant-drag-lean));
+  transition-duration: 100ms;
+}
+.assistant-float__character :deep(.wave-arm) {
   transform-origin: 161px 181px;
+}
+.assistant-float__launcher.is-dragging :deep(.wave-arm) {
+  transform: rotate(28deg);
+}
+.assistant-float__launcher.is-peeking:is(:hover, :focus-visible) :deep(.wave-arm) {
   animation: assistant-wave 700ms ease-in-out 2;
+}
+.assistant-float__launcher[aria-expanded='true'] :deep(.character-head) {
+  animation: assistant-nod 420ms ease-in-out;
+}
+.assistant-float__launcher .assistant-dock-leave-active {
+  position: absolute;
+  top: calc((52px - var(--assistant-character-height)) * var(--assistant-position-y));
+  inset-inline-end: 0;
+  width: var(--assistant-character-width);
+  height: var(--assistant-character-height);
+  transition:
+    transform 250ms ease-in,
+    opacity 250ms ease-in;
+}
+.assistant-float__launcher.is-left .assistant-dock-leave-active {
+  inset-inline: 0 auto;
+}
+.assistant-float__launcher .assistant-dock-leave-to {
+  transform: translateX(calc(72% * var(--assistant-edge-direction))) scale(0.55);
+  opacity: 0;
+}
+.assistant-float__dock-icon {
+  display: grid;
+  place-items: center;
+  animation: assistant-dock-icon 220ms ease-out both;
+}
+@keyframes assistant-dock-icon {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes assistant-nod {
+  42% {
+    transform: translateY(5px) rotate(6deg) scaleY(0.94);
+  }
+  75% {
+    transform: translateY(-2px) rotate(-2deg);
+  }
 }
 @keyframes assistant-wave {
   25%,
@@ -544,6 +635,17 @@ onBeforeUnmount(() => {
   .assistant-float__character {
     transition: none;
   }
+  .assistant-float__launcher.is-dragging .assistant-float__character,
+  .assistant-float__launcher.is-dragging :deep(.wave-arm) {
+    transform: none;
+  }
+  .assistant-float__launcher .assistant-dock-leave-active {
+    display: none;
+    transition: none;
+  }
+  .assistant-float__dock-icon {
+    animation: none;
+  }
 }
 .assistant-float__launcher.is-docked {
   width: 28px;
@@ -554,6 +656,7 @@ onBeforeUnmount(() => {
   background: var(--main-50);
   color: var(--main-color);
   cursor: pointer;
+  transition: none;
 }
 .assistant-float__launcher.is-docked.is-left {
   border-right: 1px solid #e5e1f3;
@@ -566,9 +669,9 @@ onBeforeUnmount(() => {
   outline-offset: 2px;
 }
 @media (max-width: 991px) {
-  .assistant-float__launcher:not(.is-docked) {
-    width: 60px;
-    height: 68px;
+  .assistant-float__launcher {
+    --assistant-character-width: 60px;
+    --assistant-character-height: 68px;
   }
 }
 </style>

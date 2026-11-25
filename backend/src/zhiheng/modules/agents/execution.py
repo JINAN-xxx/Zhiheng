@@ -1,4 +1,4 @@
-"""Frozen execution input and accepted memory; no assistant publication history."""
+"""Frozen assistant execution input and accepted memory."""
 
 from typing import Annotated
 from uuid import UUID
@@ -26,6 +26,7 @@ class AgentCompletion(BaseModel):
 
 class AssistantExecutionSpec(AgentSettings):
     base_run_id: UUID | None = None
+    plaza_version: Annotated[int, Field(strict=True, ge=1)] | None = None
     sequence: Annotated[int, Field(strict=True, ge=0)] = 0
     history_sources: list[dict[str, object]] = Field(default_factory=list)
     history_files: list[AttachmentSummary] = Field(default_factory=list)

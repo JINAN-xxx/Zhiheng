@@ -1,15 +1,7 @@
 <!-- Adapted from original skill UI, MIT licensed. -->
 <template>
   <main class="app-container skill-management-page">
-    <WorkspaceToolbar
-      page
-      title="技能"
-      :subtitle="
-        activeTab === 'market'
-          ? '平台预制技能，启用后可用于对话和智能体。'
-          : '上传技能包，管理自己的技能。'
-      "
-    >
+    <WorkspaceToolbar page title="技能">
       <template #actions>
         <RefreshButton label="刷新技能" :loading="loading" @click="load" />
         <a-button
@@ -25,8 +17,8 @@
 
     <section class="skill-content">
       <ATabs :active-key="activeTab" class="skill-tabs" aria-label="技能分类" @change="changeTab">
-        <ATabPane key="market" tab="市场" />
-        <ATabPane key="mine" tab="我的" />
+        <ATabPane key="market" tab="平台技能" />
+        <ATabPane key="mine" tab="我的技能" />
       </ATabs>
       <div class="skill-controls">
         <a-input
@@ -62,7 +54,7 @@
           query.status || query.keyword.trim()
             ? '没有符合条件的技能'
             : activeTab === 'market'
-              ? '暂无预制技能'
+              ? '暂无平台技能'
               : '暂无个人技能'
         "
       />
@@ -79,7 +71,14 @@
             >
               <SkillIdentityIcon :slug="skill.skillSlug" />
               <span class="skill-item__text">
-                <strong :title="skill.skillName">{{ skill.skillName }}</strong>
+                <span class="skill-item__heading">
+                  <strong :title="skill.skillName">{{ skill.skillName }}</strong>
+                  <span
+                    v-if="skill.sourceType === 'upload' && skill.platformRevisionId"
+                    class="skill-item__publication"
+                    >已上架</span
+                  >
+                </span>
                 <span
                   :id="`skill-description-${skill.skillId}`"
                   class="skill-item__description"
@@ -91,12 +90,18 @@
               </span>
             </button>
             <a-switch
+              v-if="skill.sourceType !== 'platform'"
               :checked="skill.status === 'enabled'"
               :aria-label="`启用技能“${skill.skillName}”`"
               :loading="pending[skill.skillId] ?? false"
               :disabled="!canToggleSkill(skill) || pending[skill.skillId] || deleting"
               size="small"
               @change="toggleStatus(skill)"
+            />
+            <WorkspaceMoreMenu
+              v-if="publicationActions(skill).length"
+              :items="publicationActions(skill)"
+              @command="changePublication(skill, $event)"
             />
           </article>
         </div>
@@ -132,11 +137,14 @@
       :can-toggle="!!detail && canToggleSkill(detail)"
       :can-update="canUseCapability('skills', 'update')"
       :can-delete="canUseCapability('skills', 'delete')"
+      :publication-actions="detail ? publicationActions(detail) : []"
+      :publishing="publishing"
       @update:model-value="setDetailOpen"
       @retry="loadDetail"
       @toggle="toggleSelected"
       @update="updateSelected"
       @delete="removeSelected"
+      @publication="detail && changePublication(detail, $event)"
     />
   </main>
 </template>
@@ -156,6 +164,7 @@ import {
 } from 'ant-design-vue'
 import { SearchOutlined, UploadOutlined } from '@ant-design/icons-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
+import WorkspaceMoreMenu from '../../../shared/components/WorkspaceMoreMenu.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import SkillIdentityIcon from '../components/SkillIdentityIcon.vue'
 import SkillDetailModal from '../components/SkillDetailModal.vue'
@@ -201,7 +210,10 @@ const {
   updateSelected,
   installed,
   loadDetail,
-  removeSelected
+  removeSelected,
+  publishing,
+  publicationActions,
+  changePublication
 } = useSkillsPage()
 </script>
 
@@ -308,6 +320,18 @@ const {
   flex: 1;
   flex-direction: column;
   gap: 6px;
+}
+.skill-item__heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+.skill-item__publication {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
 }
 .skill-item__text strong,
 .skill-item__description {

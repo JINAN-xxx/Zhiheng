@@ -222,7 +222,7 @@ async def documents(
         session,
         principal,
         base_id,
-        folder_id=None if folder == 'root' else folder,
+        folder_id=folder if isinstance(folder, UUID) else None,
         search=search,
         after=decode_cursor(cursor, binding),
         limit=limit,

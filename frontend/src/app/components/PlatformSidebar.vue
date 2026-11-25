@@ -35,6 +35,7 @@ const moduleIcons = {
   models: AppstoreOutlined,
   credentials: ApiOutlined,
   knowledge: DatabaseOutlined,
+  knowledge_settings: DatabaseOutlined,
   skills: ThunderboltOutlined,
   developer: ApiOutlined,
   usage: BarChartOutlined

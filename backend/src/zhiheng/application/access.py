@@ -144,9 +144,7 @@ class ResourceAccessService:
         if not allowed:
             return []
         grants = await self.grants.list(session, caller.principal.id, caller.identity.application_id, kind)
-        return [
-            grant for grant in grants if 'read' in grant.actions and grant.resource_id in allowed
-        ]
+        return [grant for grant in grants if 'read' in grant.actions and grant.resource_id in allowed]
 
     async def bind(
         self,

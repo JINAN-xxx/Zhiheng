@@ -15,8 +15,12 @@ import {
 } from 'ant-design-vue'
 import WorkspacePanel from '../../../shared/components/WorkspacePanel.vue'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
-import { errorMessage, http, isAborted, RequestScope } from '../../../shared/http.ts'
-import { boolean, number, object, string } from '../../../shared/validation.ts'
+import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import {
+  getDocumentParsingSettings,
+  getDocumentParsingStatus,
+  updateDocumentParsingSettings
+} from '../api/documentParsing.ts'
 
 const props = defineProps<{ writable: boolean }>()
 const read = new RequestScope(),
@@ -30,31 +34,17 @@ const localKey = ref(''),
   cloudKey = ref('')
 const form = reactive({
   version: 1,
-  local_url: '',
-  has_local_key: false,
-  cloud_enabled: false,
-  cloud_url: '',
-  has_cloud_key: false,
+  localUrl: '',
+  hasLocalKey: false,
+  cloudEnabled: false,
+  cloudUrl: '',
+  hasCloudKey: false,
   tier: 'standard',
-  timeout_seconds: 900 as number | null,
-  queue_timeout_seconds: 120
+  timeoutSeconds: 900 as number | null,
+  queueTimeoutSeconds: 120
 })
-function decode(value: unknown) {
-  const d = object(value)
-  return {
-    version: number(d.version),
-    local_url: d.local_url == null ? '' : string(d.local_url),
-    has_local_key: boolean(d.has_local_key),
-    cloud_enabled: boolean(d.cloud_enabled),
-    cloud_url: d.cloud_url == null ? '' : string(d.cloud_url),
-    has_cloud_key: boolean(d.has_cloud_key),
-    tier: string(d.tier),
-    timeout_seconds: number(d.timeout_seconds),
-    queue_timeout_seconds: number(d.queue_timeout_seconds)
-  }
-}
 const stateLabel = computed(() =>
-  !form.local_url
+  !form.localUrl
     ? '本地未配置'
     : localAvailable.value === true
       ? '本地可用'
@@ -73,22 +63,10 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const data = await http.request('/knowledge/settings/parsing', {
-      signal: ticket.signal,
-      decode
-    })
+    const data = await getDocumentParsingSettings(ticket.signal)
     if (!ticket.isCurrent()) return
     Object.assign(form, data)
-    const status = await http.request('/knowledge/settings/parsing/status', {
-      signal: ticket.signal,
-      decode: (value) => {
-        const data = object(value)
-        return {
-          local: boolean(object(data.local).available),
-          cloud: data.cloud == null ? null : boolean(object(data.cloud).available)
-        }
-      }
-    })
+    const status = await getDocumentParsingStatus(ticket.signal)
     if (ticket.isCurrent()) {
       localAvailable.value = status.local
       cloudAvailable.value = status.cloud
@@ -101,7 +79,7 @@ async function load() {
 }
 async function save() {
   if (loading.value || saving.value || !props.writable) return
-  if (form.timeout_seconds === null || !Number.isInteger(form.timeout_seconds)) {
+  if (form.timeoutSeconds === null || !Number.isInteger(form.timeoutSeconds)) {
     error.value = '请填写有效的解析超时'
     return
   }
@@ -109,22 +87,20 @@ async function save() {
   saving.value = true
   error.value = ''
   try {
-    const data = await http.request('/knowledge/settings/parsing', {
-      method: 'PATCH',
-      signal: ticket.signal,
-      decode,
-      body: {
-        expected_version: form.version,
-        local_url: form.local_url || null,
-        local_api_key: localKey.value || null,
-        cloud_enabled: form.cloud_enabled,
-        cloud_url: form.cloud_url || null,
-        cloud_api_key: cloudKey.value || null,
+    const data = await updateDocumentParsingSettings(
+      {
+        expectedVersion: form.version,
+        localUrl: form.localUrl,
+        localApiKey: localKey.value,
+        cloudEnabled: form.cloudEnabled,
+        cloudUrl: form.cloudUrl,
+        cloudApiKey: cloudKey.value,
         tier: form.tier,
-        timeout_seconds: form.timeout_seconds,
-        queue_timeout_seconds: form.queue_timeout_seconds
-      }
-    })
+        timeoutSeconds: form.timeoutSeconds,
+        queueTimeoutSeconds: form.queueTimeoutSeconds
+      },
+      ticket.signal
+    )
     if (!ticket.isCurrent()) return
     Object.assign(form, data)
     localKey.value = ''
@@ -152,7 +128,7 @@ onBeforeUnmount(() => {
       <div>
         <strong>文档解析</strong
         ><ATag :color="localAvailable ? 'green' : 'default'">{{ stateLabel }}</ATag>
-        <ATag v-if="form.cloud_enabled" :color="cloudAvailable ? 'green' : 'default'">
+        <ATag v-if="form.cloudEnabled" :color="cloudAvailable ? 'green' : 'default'">
           {{ cloudAvailable === null ? '云端待检测' : cloudAvailable ? '云端可用' : '云端不可用' }}
         </ATag>
       </div>
@@ -169,7 +145,7 @@ onBeforeUnmount(() => {
       <div class="parsing-fields">
         <AFormItem label="本地 MinerU 地址">
           <AInput
-            v-model:value="form.local_url"
+            v-model:value="form.localUrl"
             placeholder="http://mineru-api:8000，留空跳过"
             :maxlength="2048"
           />
@@ -178,19 +154,19 @@ onBeforeUnmount(() => {
           <AInputPassword
             v-model:value="localKey"
             autocomplete="off"
-            :placeholder="form.has_local_key ? '留空保留；更换地址请重填' : '服务启用认证时填写'"
+            :placeholder="form.hasLocalKey ? '留空保留；更换地址请重填' : '服务启用认证时填写'"
           />
         </AFormItem>
       </div>
       <AFormItem label="云端后备">
         <ASwitch
-          :checked="form.cloud_enabled"
+          :checked="form.cloudEnabled"
           aria-label="启用云端解析后备"
-          @update:checked="(value) => (form.cloud_enabled = value === true)"
+          @update:checked="(value) => (form.cloudEnabled = value === true)"
         />
         <span class="parsing-switch-label">本地不可用时使用云端</span>
       </AFormItem>
-      <template v-if="form.cloud_enabled">
+      <template v-if="form.cloudEnabled">
         <p class="parsing-cloud-note">
           启用后可能向此服务上传文档，并产生服务商费用。官方云端使用 vlm 模型，解析档位仅用于本地及
           V1 兼容服务。
@@ -198,7 +174,7 @@ onBeforeUnmount(() => {
         <div class="parsing-fields">
           <AFormItem label="云端 MinerU 地址" required>
             <AInput
-              v-model:value="form.cloud_url"
+              v-model:value="form.cloudUrl"
               placeholder="https://mineru.net/api/v4"
               :maxlength="2048"
             />
@@ -207,7 +183,7 @@ onBeforeUnmount(() => {
             <AInputPassword
               v-model:value="cloudKey"
               autocomplete="off"
-              :placeholder="form.has_cloud_key ? '留空保留；更换地址请重填' : '填写服务商密钥'"
+              :placeholder="form.hasCloudKey ? '留空保留；更换地址请重填' : '填写服务商密钥'"
             />
           </AFormItem>
         </div>
@@ -225,12 +201,12 @@ onBeforeUnmount(() => {
         /></AFormItem>
         <AFormItem label="解析超时（秒）"
           ><AInputNumber
-            :value="form.timeout_seconds ?? ''"
+            :value="form.timeoutSeconds ?? ''"
             :min="30"
             :max="7200"
             :precision="0"
             @update:value="
-              (value) => (form.timeout_seconds = typeof value === 'number' ? value : null)
+              (value) => (form.timeoutSeconds = typeof value === 'number' ? value : null)
             "
         /></AFormItem>
       </div>

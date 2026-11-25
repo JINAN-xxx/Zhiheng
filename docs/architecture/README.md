@@ -1,6 +1,6 @@
 # 架构与模块边界
 
-智衡采用模块化单体后端与独立 Worker。后端分发包为 zhiheng-platform，导入包为 zhiheng，命令入口为 python -m zhiheng。前端使用 Vue 3、TypeScript 和 Ant Design Vue。
+DAIP 采用模块化单体后端与独立 Worker。后端分发包为 `zhiheng-platform`，导入包为 `zhiheng`，命令入口为 `python -m zhiheng`。前端使用 Vue 3、TypeScript 和 Ant Design Vue。
 
 ## 源码结构
 
@@ -30,7 +30,7 @@ frontend/src/
 | billing | 用量事实、Token/金额/积分、价格和结算 |
 | developer | 应用、Key、Scope、授权和限速策略 |
 | chat | 会话、消息、回复版本、上下文和滚动摘要 |
-| agents | 私人助手、最新配置、启用状态、调试、正式会话及调用审计 |
+| agents | 私人助手配置、广场发布版本、调试、会话及调用审计 |
 | skills | 安装预检、技能包、修订和冻结内容 |
 | work | 任务配置、输入、计划、执行步骤、成果版本、恢复快照及沙盒租约 |
 | files | 文件元数据、权限、引用、回收、通用解析协议/配置与解析器 |
@@ -55,6 +55,8 @@ frontend/src/
 
 PostgreSQL 保存业务与运行事实；Redis 用于队列、心跳与限速；Milvus 保存版本化向量索引；受管文件保存在独立业务 MinIO。API、Worker 和迁移必须使用同一套配置、源码与密钥。
 
+持久 Run 的授权分支、投递队列和业务投影由 `application/execution/run_policy.py` 显式登记。Worker 将运行恢复、常规清理和文件扫描分别调度。未知的 Outbox 投递被延后并记录，当前批次其余任务继续处理。知识准备写入带版本的请求契约，旧记录按原有格式读取。
+
 ## 知识与解析
 
 知识库目录、资料管理、构建准入、引用和资料迁移的代码归属见[知识模块职责](knowledge-boundaries.md)。
@@ -69,7 +71,9 @@ PostgreSQL 保存业务与运行事实；Redis 用于队列、心跳与限速；
 
 普通聊天与正式助手会话共用官方create_agent、Token摘要Middleware与PostgreSQL checkpoint，分别拥有业务记忆和完整消息记录。详情见[会话上下文](chat-context-memory.md)。
 
-智能助手只维护最新配置与启用状态，正式会话的新消息和公开 API 使用本轮受理时的配置；调试/API每请求独立。工作空间直接选择模型与技能，每轮冻结配置、技能修订、输入版本和执行镜像。技能内容、知识依赖（适用入口）、模型绑定和实际请求保留审计快照，编辑配置不改写已受理的运行。
+私有助手用最新已启用配置受理正式会话和外部 API 请求。广场独立保存管理员上架的版本，仅为授权用户提供站内会话。会话与用量归调用者，历史展示保留创建时的信息，运行审计记录实际发布版本。浏览器只暂存待确认请求标识，刷新后按原标识查询受理状态。调试和外部 API 由各自的请求携带历史。
+
+工作空间直接选择模型与技能，每轮冻结配置、技能修订、输入版本和执行镜像。技能内容、知识依赖（适用入口）、模型绑定和实际请求保留审计快照。配置编辑不改写已受理的输入，执行前仍复核当前权限和依赖是否有效。
 
 ## 工作空间任务执行
 
@@ -98,8 +102,9 @@ PostgreSQL 保存业务与运行事实；Redis 用于队列、心跳与限速；
 - [代码规范](code-standards.md)
 - [开发与隔离测试](../development.md)
 - tools/check_architecture.py 检查依赖方向。
-- tools/check_core_wheel.py 检查独立打包和迁移内容。
+- `tools/check_core_wheel.py` 检查独立打包和迁移内容。
 - frontend/tools/moduleBoundaries.js 检查前端模块依赖。
+- [工程维护评审和分批修复记录](maintainability-review-2026-11-24.md)
 
 ## 权限和容量投影
 
@@ -109,7 +114,7 @@ Key Scope目录返回当前身份的`grantable/reason`，签发、轮换和执�
 
 ## 源码模式启动
 
-`compose.source.yaml`挂载只读源码和依赖清单。CLI在加载API/Worker前检查镜像中的直接依赖版本和数据库schema；迁移命令只预检依赖，允许显式升级schema。CLI help和migrate不导入API、Worker及供应商SDK。
+`compose.source.yaml` 挂载只读源码和依赖清单。`dev.sh` 按规范化工作副本和环境文件路径隔离项目，接管已有实例时核对来源。CLI 在加载 API 或 Worker 前检查镜像中的直接依赖版本和数据库 schema；迁移命令预检依赖并显式升级 schema。CLI 帮助和迁移不导入 API、Worker 及供应商 SDK。
 
 依赖或迁移变化时，先构建镜像、显式迁移，再重建API和Worker。启动预检不替代这一升级顺序，也不替代运行中热重载的统一进程重启；Worker不自动跟随API源码重载。
 
@@ -121,4 +126,4 @@ checkpoint、退役分块、文件扫描和技能包的回收条件见[生命周
 
 ## 智能助手执行与记忆
 
-[智能助手执行与记忆](assistant-langchain.md)说明最新配置、三种入口、共享技术边界、增量 checkpoint、摘要和账务约束。
+[智能助手执行与记忆](assistant-langchain.md)说明私人配置、广场发布、调用入口、增量 checkpoint、摘要和账务约束。

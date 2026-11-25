@@ -17,13 +17,19 @@
           v-for="(item, index) in items"
           :key="item.command"
           :danger="item.danger ?? false"
+          :disabled="Boolean(item.disabledReason)"
           :class="{ 'workspace-more-popup__divided': item.divided && index > 0 }"
         >
           <span class="workspace-more-popup__item">
             <span class="workspace-more-popup__icon" aria-hidden="true">
               <component :is="item.icon" v-if="item.icon" />
             </span>
-            <span class="workspace-more-popup__label">{{ item.label }}</span>
+            <span class="workspace-more-popup__label">
+              {{ item.label }}
+              <span v-if="item.disabledReason" class="workspace-more-popup__reason">{{
+                item.disabledReason
+              }}</span>
+            </span>
           </span>
         </a-menu-item>
       </a-menu>
@@ -41,6 +47,7 @@ export interface MenuAction {
   icon?: Component
   danger?: boolean
   divided?: boolean
+  disabledReason?: string
 }
 const props = withDefaults(defineProps<{ items?: MenuAction[]; compact?: boolean }>(), {
   items: () => []
@@ -51,7 +58,7 @@ function popupContainer(triggerNode: HTMLElement): HTMLElement {
 }
 function handleMenuClick({ key }: { key: string | number }): void {
   const item = props.items.find((entry) => entry.command === key)
-  if (item) emit('command', item.command, item)
+  if (item && !item.disabledReason) emit('command', item.command, item)
 }
 </script>
 
@@ -134,6 +141,13 @@ function handleMenuClick({ key }: { key: string | number }): void {
     flex: 1;
     min-width: 0;
     white-space: nowrap;
+  }
+
+  &__reason {
+    display: block;
+    color: var(--workspace-text-secondary);
+    font-size: 12px;
+    white-space: normal;
   }
 }
 </style>

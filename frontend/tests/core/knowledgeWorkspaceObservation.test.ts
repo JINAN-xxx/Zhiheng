@@ -465,10 +465,12 @@ void test('legacy section revalidation clears a source whose file permission was
     updated_at: stamp
   }
   let available = true
-  fixture.override = (path) =>
-    path.endsWith('/documents')
-      ? response({ items: available ? [document] : [], total: available ? 1 : 0 })
-      : undefined
+  fixture.override = (path) => {
+    if (path.endsWith('/documents'))
+      return response({ items: available ? [document] : [], total: available ? 1 : 0 })
+    if (path.endsWith('/documents/visibility')) return response(available ? [document.id] : [])
+    return undefined
+  }
   const { workspace } = await fixture.mount(t)
   fixture.complete()
   await workspace.refresh()
@@ -493,6 +495,7 @@ void test('legacy section revalidation clears a source whose file permission was
   available = false
   await workspace.navigate(workspace.selected.value!, 'query')
   await flush()
+  assert.equal(fixture.count('/api/knowledge/bases/base-1/documents/visibility'), 1)
   assert.equal(workspace.queryResult.value, null)
   assert.equal(workspace.selected.value?.id, 'base-1')
 })

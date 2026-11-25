@@ -101,7 +101,7 @@ class DocumentParsing:
         raise ParsingPending
 
     async def status(self, principal: Principal) -> ParsingStatusInfo:
-        principal.require_permission('system:configs:read')
+        principal.require_permission('platform:knowledge_settings:read')
         async with self.database.sessions() as session:
             config, _ = await self.settings.snapshot(session)
         url = config.get('local_url')

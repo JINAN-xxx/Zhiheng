@@ -4,6 +4,7 @@ from zhiheng.modules.skills.contracts import (
     RevisionContent,
     RevisionInfo,
     SkillAccess,
+    SkillCatalog,
     SkillConfirmation,
     SkillImportAction,
     SkillInfo,
@@ -24,6 +25,7 @@ from zhiheng.modules.skills.service import (
     require_frozen_available,
     resolve_selection,
 )
+from zhiheng.modules.skills.validation import platform_skill_id
 from zhiheng.modules.skills.workbench import WorkbenchSkills
 
 __all__ = [
@@ -34,6 +36,7 @@ __all__ = [
     'RevisionContent',
     'RevisionInfo',
     'SkillAccess',
+    'SkillCatalog',
     'SkillConfirmation',
     'SkillImportAction',
     'SkillInfo',
@@ -46,6 +49,7 @@ __all__ = [
     'SkillSource',
     'SkillStatus',
     'WorkbenchSkills',
+    'platform_skill_id',
     'require_available',
     'require_available_groups',
     'require_available_set',

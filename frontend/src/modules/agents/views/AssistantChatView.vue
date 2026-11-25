@@ -20,6 +20,7 @@ import { useAssistantWorkspace } from '../composables/useAssistantWorkspace.ts'
 const router = useRouter()
 const {
   agentId,
+  plaza,
   queuedFiles,
   fileQueueReady,
   addFiles,
@@ -46,6 +47,9 @@ const {
   draft,
   sending,
   pending,
+  confirmationNeeded,
+  retryInput,
+  confirming,
   outgoingVisible,
   outgoingRun,
   preparation,
@@ -122,7 +126,7 @@ function composerKeydown(event: KeyboardEvent): void {
         class="chat-toolbar-action"
         aria-label="返回智能助手"
         title="返回智能助手"
-        @click="router.push('/agents')"
+        @click="router.push({ path: '/agents', query: plaza ? {} : { tab: 'mine' } })"
         ><ArrowLeftOutlined
       /></AButton>
       <h1 class="assistant-chat__name" :title="name">{{ name }}</h1>
@@ -230,9 +234,9 @@ function composerKeydown(event: KeyboardEvent): void {
               {{ outgoing.error }}
             </p>
             <AButton
-              v-if="pending"
+              v-if="confirmationNeeded"
               size="small"
-              :disabled="sending || loading || running"
+              :disabled="confirming || sending || loading || running"
               @click="send(true)"
               >确认原提交</AButton
             >
@@ -240,18 +244,18 @@ function composerKeydown(event: KeyboardEvent): void {
         </article>
       </template>
       <article
-        v-if="error || (pending && !outgoingVisible && !sending) || disconnected"
+        v-if="error || (confirmationNeeded && !outgoingVisible && !sending) || disconnected"
         class="message-row assistant assistant-chat__notice"
       >
         <div class="message-body">
           <AAlert v-if="error" type="error" :message="error" show-icon />
           <AAlert
-            v-if="pending && !outgoingVisible && !sending"
+            v-if="confirmationNeeded && !outgoingVisible && !sending"
             type="warning"
             message="有一条原提交待确认，请确认原提交以避免重复调用。"
             show-icon
             ><template #action
-              ><AButton :disabled="sending || loading || running" @click="send(true)"
+              ><AButton :disabled="confirming || sending || loading || running" @click="send(true)"
                 >确认原提交</AButton
               ></template
             ></AAlert
@@ -265,9 +269,9 @@ function composerKeydown(event: KeyboardEvent): void {
       input-label="发送给助手的消息"
       :placeholder="`向${name}发送消息`"
       :max-rows="7"
-      :disabled="!canSend || !!pending"
+      :disabled="!canSend || confirmationNeeded"
       :submit-disabled="
-        !canSend || (!draft.trim() && !queuedFiles.length) || !fileQueueReady || !!pending
+        !canSend || (!draft.trim() && !queuedFiles.length) || !fileQueueReady || confirmationNeeded
       "
       :sending="sending"
       :running="running"
@@ -282,6 +286,9 @@ function composerKeydown(event: KeyboardEvent): void {
       @stop="stop"
     >
       <template #notice>
+        <div v-if="retryInput" class="composer-notice">
+          <AAlert type="info" message="未查到原提交，请重新输入消息或添加附件。" show-icon />
+        </div>
         <div v-if="agent?.status === 'disabled'" class="composer-notice">
           <AAlert type="info" message="助手尚未启用，启用后可开始正式对话。" show-icon />
         </div>
@@ -303,7 +310,7 @@ function composerKeydown(event: KeyboardEvent): void {
             :preview-url="file.previewUrl"
             :status="file.status"
             :error="file.error"
-            :disabled="!canSend || !!pending"
+            :disabled="!canSend || confirmationNeeded"
             @retry="retryFile(file.id)"
             @remove="removeFile(file.id)"
           />
@@ -325,7 +332,7 @@ function composerKeydown(event: KeyboardEvent): void {
         <AttachmentButton
           aria-label="添加助手附件"
           title="每条消息附件合计最多50MB，单个文件最大20MiB；图片需要模型支持视觉"
-          :disabled="!canSend || !!pending"
+          :disabled="!canSend || confirmationNeeded"
           @click="fileInput?.click()"
         />
       </template>

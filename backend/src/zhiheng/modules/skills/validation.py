@@ -1,6 +1,7 @@
 """Input rules shared by package parsing, API contracts, and public selection."""
 
 import re
+from uuid import UUID
 
 from zhiheng.shared.errors import AppError
 
@@ -8,6 +9,16 @@ MAX_SLUG_LENGTH = 255
 SLUG_PATTERN = r'^[a-z0-9]+(?:-[a-z0-9]+)*$'
 MAX_SEARCH_LENGTH = 500
 _SLUG = re.compile(SLUG_PATTERN)
+_PLATFORM = re.compile(r'platform-([a-f0-9]{32})')
+
+
+def platform_skill_id(value: str) -> UUID | None:
+    matched = _PLATFORM.fullmatch(value)
+    return UUID(hex=matched[1]) if matched else None
+
+
+def platform_skill_slug(identifier: UUID) -> str:
+    return 'platform-' + identifier.hex
 
 
 def is_valid_slug(value: str) -> bool:

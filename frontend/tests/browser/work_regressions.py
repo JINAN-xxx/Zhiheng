@@ -25,7 +25,7 @@ class WorkUIRegressions(DeveloperBoundary):
         self.available_skills = [
             {'id': f'skill-{index}', 'slug': slug, 'name': name, 'description': f'{name}的处理方法',
              'package_version': '1.0.0', 'version': 1, 'status': 'enabled',
-             'source': 'builtin' if index < 5 else 'upload', 'revision_id': f'revision-{index}',
+             'source': 'upload', 'revision_id': f'revision-{index}',
              'content_hash': f'hash-{index}', 'file_count': 1, 'total_bytes': 123}
             for index, (slug, name) in enumerate([
                 ('documents', '文档制作'), ('sheets', '表格分析'), ('charts', '图表制作'),
@@ -318,7 +318,7 @@ class WorkUIRegressions(DeveloperBoundary):
         await expect(self.page.locator('.model-select')).to_be_visible()
         await self.page.get_by_role('textbox', name='工作目标', exact=True).press('/')
         picker = self.page.locator('.skill-picker-panel')
-        await expect(picker.get_by_text('预置技能', exact=True)).to_be_visible()
+        await expect(picker.get_by_text('平台技能', exact=True)).to_be_visible()
         await expect(picker.get_by_text('我的技能', exact=True)).to_be_visible()
         search = picker.get_by_role('combobox', name='搜索技能', exact=True)
         await search.fill('报告')

@@ -6,7 +6,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 from zhiheng.shared.errors import AppError
 
-SCHEMA_REVISION = '0045_developer_key_controls'
+SCHEMA_REVISION = '0049_settings_permissions'
 
 
 class Base(DeclarativeBase):

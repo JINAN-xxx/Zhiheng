@@ -35,6 +35,7 @@ SUPPLIER_ROOTS = frozenset(
     }
 )
 INVERTED_LAYERS = frozenset({'api', 'worker', 'bootstrap', 'application', 'cli'})
+ASSISTANT_TRANSPORTS = frozenset({f'{PACKAGE}.api.console.agents', f'{PACKAGE}.api.console.assistant_conversations'})
 
 
 @dataclass(frozen=True)
@@ -200,11 +201,15 @@ def _structural_violations(source: str, path: Path, node: ast.AST) -> list[Archi
         source.startswith(PACKAGE + '.api.')
         and isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and node.func.attr in {'fail', 'create', 'request_cancel', 'release', 'completed', 'publish'}
         and isinstance(node.func.value, ast.Attribute)
         and node.func.value.attr == 'store'
     ):
-        violations.append(ArchitectureViolation(path, node.lineno, 'transport-domain-state-mutation', node.func.attr))
+        if source in ASSISTANT_TRANSPORTS:
+            violations.append(ArchitectureViolation(path, node.lineno, 'assistant-transport-store', node.func.attr))
+        elif node.func.attr in {'fail', 'create', 'request_cancel', 'release', 'completed', 'publish'}:
+            violations.append(
+                ArchitectureViolation(path, node.lineno, 'transport-domain-state-mutation', node.func.attr)
+            )
     if (
         source.startswith(PACKAGE + '.runtime.')
         and isinstance(node, ast.Subscript)

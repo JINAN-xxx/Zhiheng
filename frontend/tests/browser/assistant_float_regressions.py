@@ -1,5 +1,6 @@
 """Floating character navigation, pointer gestures and identity boundaries."""
 import os
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -71,6 +72,9 @@ class AssistantFloatRegressions(DeveloperBoundary):
         self.assertAlmostEqual(before['y'] - after['y'], 16, delta=1)
         await self.page.keyboard.press('Enter')
         await expect(self.panel().get_by_role('heading', name='你好，我是小助手', exact=True)).to_be_visible()
+        await expect(launcher.locator('.character-head')).to_have_css(
+            'animation-name', re.compile(r'^assistant-nod')
+        )
         await expect(self.panel().get_by_role('link', name='打开智能助手', exact=True)).to_be_focused()
         await self.page.screenshot(path=str(self.evidence/'desktop-expanded.png'))
         await self.page.keyboard.press('Escape')
@@ -94,7 +98,16 @@ class AssistantFloatRegressions(DeveloperBoundary):
         await self.page.mouse.move(box['x']+box['width']/2, box['y']+box['height']/2)
         await self.page.mouse.down()
         await self.page.mouse.move(470, 180, steps=12)
+        await expect(launcher).to_have_css('--assistant-drag-lean', '-10deg')
+        await launcher.evaluate("""element => element.addEventListener('pointerup', () => {
+            const character = element.querySelector('.assistant-float__character');
+            const bouncedInward = character.getAnimations().some(animation =>
+                animation.effect.getKeyframes().some(frame => frame.translate === '4px')
+            );
+            element.dataset.bouncedInward = String(bouncedInward);
+        }, { once: true })""")
         await self.page.mouse.up()
+        await expect(launcher).to_have_attribute('data-bounced-inward', 'true')
         await expect(self.panel()).to_have_count(0)
         await self.page.wait_for_function("document.querySelector('.assistant-float__launcher').getBoundingClientRect().x < 1")
         box = await self.assert_inside(launcher)
@@ -124,8 +137,14 @@ class AssistantFloatRegressions(DeveloperBoundary):
     async def test_dock_preferences_are_per_account_and_live_permission_changes_are_applied(self):
         launcher = await self.open_float('/developer')
         await launcher.click()
+        await launcher.evaluate("""element => element.addEventListener('transitionrun', event => {
+            if (event.propertyName === 'opacity' && event.target.classList.contains('assistant-float__character'))
+                element.dataset.dockTransition = event.propertyName;
+        })""")
         await self.panel().get_by_role('button', name='贴边收起小助手', exact=True).click()
         await expect(launcher).to_have_class('assistant-float__launcher is-docked')
+        await expect(launcher).to_have_attribute('data-dock-transition', 'opacity')
+        await expect(launcher.locator('.assistant-float__character')).to_have_count(0)
         await self.page.reload()
         await expect(launcher).to_have_attribute('aria-label', '展开小助手')
         await self.page.screenshot(path=str(self.evidence/'desktop-docked.png'))
@@ -189,6 +208,8 @@ class AssistantFloatRegressions(DeveloperBoundary):
         self.assertEqual(await launcher.locator('.mascot-body').evaluate("e=>getComputedStyle(e).animationName"), 'none')
         await launcher.click()
         await expect(self.panel()).to_be_visible()
+        await expect(launcher.locator('.character-head')).to_have_css('animation-name', 'none')
         await self.panel().get_by_role('button', name='贴边收起小助手', exact=True).click()
+        await expect(launcher.locator('.assistant-float__dock-icon')).to_have_css('animation-name', 'none')
         await launcher.click()
         await expect(self.panel()).to_be_visible()

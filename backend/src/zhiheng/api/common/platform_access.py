@@ -15,7 +15,9 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
     },
     'chat_files': {'upload': 'chat:use'},
     'assistant_conversations': {
-        **dict.fromkeys(('list_conversations', 'conversation_detail', 'download_attachment'), 'agents:read'),
+        **dict.fromkeys(
+            ('list_conversations', 'conversation_detail', 'download_attachment', 'submission_receipt'), 'agents:read'
+        ),
         'upload_attachment': 'agents:use',
         **dict.fromkeys(
             ('create_conversation', 'send_message', 'rename_conversation', 'delete_conversation'), 'agents:use'
@@ -23,6 +25,12 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
     },
     'agents': {
         'list_agents': 'agents:read',
+        'plaza_list': 'agents:read',
+        'plaza_departments': 'agents:plaza_publish',
+        'plaza_history': 'agents:read',
+        'plaza_get': 'agents:read',
+        'plaza_publish': 'agents:plaza_publish',
+        'plaza_unpublish': 'agents:plaza_publish',
         'get': 'agents:read',
         'knowledge_policy': 'agents:read',
         'create': 'agents:create',
@@ -55,7 +63,14 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
         'admit': 'work:use',
         'upload': 'work:use',
     },
-    'skills': {'skills': 'skills:read', 'get': 'skills:read', 'content': 'skills:read', 'remove': 'skills:delete'},
+    'skills': {
+        'skills': 'skills:read',
+        'get': 'skills:read',
+        'content': 'skills:read',
+        'remove': 'skills:delete',
+        'publish_platform': 'skills:platform_publish',
+        'withdraw_platform': 'skills:platform_publish',
+    },
     'developer': {
         **dict.fromkeys(
             (
@@ -184,7 +199,7 @@ def _authorize_administration(request: Request, principal: Principal, module: st
     if module == 'admin_operations':
         if name == 'published_notices':
             return True
-        area = 'logs' if name == 'logs' else ('configs' if 'config' in name else 'notices')
+        area = 'logs' if name == 'logs' else ('notice_settings' if 'config' in name else 'notices')
         action = (
             'read'
             if request.method == 'GET'
@@ -200,7 +215,8 @@ def _authorize_administration(request: Request, principal: Principal, module: st
             principal.require_any_permission(f'system:{area}:update', f'system:{area}:toggle', f'system:{area}:publish')
         return True
     if module == 'knowledge_settings':
-        principal.require_permission('system:configs:read' if request.method == 'GET' else 'system:configs:update')
+        action = 'read' if request.method == 'GET' else 'update'
+        require_capability(principal, 'knowledge_settings', action)
         return True
     return False
 
@@ -221,7 +237,7 @@ def authorize_console_route(request: Request, principal: Principal) -> None:  # 
                 'platform:work:read',
                 'platform:knowledge:read',
                 'platform:developer:read',
-                'system:configs:read',
+                'platform:knowledge_settings:read',
             )
         return  # Model and credential domain commands check their own exact operation.
     if module == 'agents' and name == 'available':

@@ -33,7 +33,7 @@
     <WorkspaceState v-if="loading" kind="loading" />
     <WorkspaceState v-else-if="error" kind="error" :message="error" @retry="emit('retry')" />
     <template v-else-if="skill">
-      <section class="skill-markdown" aria-label="技能内容">
+      <section v-if="skill.sourceType !== 'platform'" class="skill-markdown" aria-label="技能内容">
         <MarkdownRender
           :content="markdownContent || '暂无内容'"
           html-policy="safe"
@@ -56,6 +56,18 @@
     </template>
 
     <template #footer>
+      <template v-for="action in publicationActions" :key="action.command">
+        <p v-if="action.disabledReason" class="detail-publication-reason">
+          {{ action.disabledReason }}
+        </p>
+        <a-button
+          :danger="action.danger ?? false"
+          :loading="publishing ?? false"
+          :disabled="operationsDisabled || Boolean(action.disabledReason)"
+          @click="emit('publication', action.command)"
+          >{{ action.label }}</a-button
+        >
+      </template>
       <div
         v-if="
           skill &&
@@ -117,6 +129,7 @@ import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
 import ResourceReferences from '../../../shared/components/ResourceReferences.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
+import type { MenuAction } from '../../../shared/components/WorkspaceMoreMenu.vue'
 import type { Skill } from '../api/index.ts'
 import SkillIdentityIcon from './SkillIdentityIcon.vue'
 
@@ -134,6 +147,8 @@ const props = defineProps<{
   canUpdate?: boolean | undefined
   canDelete?: boolean | undefined
   canToggle?: boolean | undefined
+  publicationActions?: MenuAction[]
+  publishing?: boolean
 }>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
@@ -141,8 +156,9 @@ const emit = defineEmits<{
   toggle: []
   update: []
   delete: []
+  publication: [command: string]
 }>()
-const busy = computed(() => props.saving || props.deleting)
+const busy = computed(() => props.saving || props.deleting || props.publishing)
 const operationsDisabled = computed(
   () => busy.value || props.loading || Boolean(props.error) || !props.skill
 )
@@ -246,6 +262,11 @@ const markdownContent = computed(() =>
 }
 .detail-action-error {
   margin-top: 16px;
+}
+.detail-publication-reason {
+  margin: 0 0 8px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
 }
 :global(.skill-detail-modal .ant-modal-content) {
   border-radius: 12px;

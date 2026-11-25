@@ -144,7 +144,7 @@ async def resource_page(
     if after is not None:
         query = query.where(tuple_(FileRecord.created_at, FileRecord.id) < after)
     rows = await session.scalars(query.order_by(FileRecord.created_at.desc(), FileRecord.id.desc()).limit(limit))
-    return [await files.info(session, row) for row in rows]
+    return await files.info_many(session, rows.all())
 
 
 class FileCatalog:
@@ -262,7 +262,7 @@ class FileCatalog:
             .limit(filters.page_size)
         )
         return FilePage(
-            items=[await self.files.info(session, row) for row in rows],
+            items=await self.files.info_many(session, rows.all()),
             total=total,
             page=filters.page,
             page_size=filters.page_size,

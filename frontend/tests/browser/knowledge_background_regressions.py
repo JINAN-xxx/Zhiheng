@@ -181,7 +181,10 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
         other_base = {**self.base, 'id': 'base-2', 'name': '第二知识库', 'active_job_id': None}
         self.bases.append(other_base)
         await self.page.route('**/api/knowledge/bases/base-2', lambda route: route.fulfill(json=other_base))
-        await self.page.route('**/api/knowledge/bases/base-2/documents', lambda route: route.fulfill(json={'items': [], 'total': 0}))
+        await self.page.route(
+            lambda url: urlparse(url).path == '/api/knowledge/bases/base-2/documents',
+            lambda route: route.fulfill(json={'items': [], 'total': 0}),
+        )
         await self.page.route('**/api/knowledge/bases/base-2/folders', lambda route: route.fulfill(json=[]))
         await self.page.route('**/api/knowledge/bases/base-2/jobs', lambda route: route.fulfill(json=[]))
         self.hold_observation = asyncio.Event()

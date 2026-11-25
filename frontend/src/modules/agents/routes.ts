@@ -1,10 +1,16 @@
 import type { RouteRecordRaw } from 'vue-router'
 export const agentRoutes: RouteRecordRaw[] = [
   {
+    path: '/agents/plaza/:id/chat',
+    name: 'assistant-plaza-chat',
+    component: () => import('./views/AssistantChatView.vue'),
+    meta: { title: '助手对话', activeMenu: '/agents', reuseByParam: 'id', conversationLayout: true }
+  },
+  {
     path: '/agents/:id/chat',
     name: 'assistant-chat',
     component: () => import('./views/AssistantChatView.vue'),
-    meta: { title: '助手对话', activeMenu: '/agents', reuseByParam: 'id' }
+    meta: { title: '助手对话', activeMenu: '/agents', reuseByParam: 'id', conversationLayout: true }
   },
   {
     path: '/agents',

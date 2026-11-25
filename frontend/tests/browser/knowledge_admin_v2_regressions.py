@@ -77,7 +77,7 @@ class KnowledgeAdminV2Regressions(DeveloperBoundary):
                 return await route.fulfill(json={'items': self.menu_configs, 'total': len(self.menu_configs),
                                                  'page': 1, 'page_size': 100})
             definitions = [('/admin/menus', '菜单管理', 'system:menus:read'),
-                           ('/admin/knowledge-settings', '知识服务', 'system:configs:read'),
+                           ('/admin/knowledge-settings', '知识服务', 'platform:knowledge_settings:read'),
                            ('/admin/storage', '存储管理', 'ai:storage:read')]
             items = [{'path': page, 'name': label, 'permission': permission, 'sort_order': index,
                       'is_visible': True} for index, (page, label, permission) in enumerate(definitions)
@@ -201,7 +201,7 @@ class KnowledgeAdminV2Regressions(DeveloperBoundary):
         self.assertEqual(self.patches(), [])
 
     async def test_configs_reader_sees_values_but_no_write_controls(self):
-        self.user.update(is_admin=False, permissions=granted_permissions('system:configs:read'))
+        self.user.update(is_admin=False, permissions=granted_permissions('platform:knowledge_settings:read'))
         await self.open_settings()
         await expect(self.page.get_by_role('button', name='保存配置', exact=True)).to_have_count(0)
         for label in ['默认向量模型', '默认重排模型']:
@@ -284,7 +284,7 @@ class KnowledgeAdminV2Regressions(DeveloperBoundary):
         await self.assert_storage_role_access()
 
     async def test_storage_writer_gets_account_entry_navigation_and_no_knowledge_service(self):
-        self.user.update(username='storage-writer', is_admin=False, permissions=granted_permissions('ai:storage:configure', 'ai:storage:maintain', 'ai:storage:acl', 'ai:storage:transfer', 'ai:storage:delete', 'ai:storage:parse'))
+        self.user.update(username='storage-writer', is_admin=False, permissions=granted_permissions('ai:storage:configure', 'ai:storage:maintain', 'ai:storage:acl', 'ai:storage:transfer', 'ai:storage:delete'))
         await self.assert_storage_role_access()
         for path in ['/files', '/knowledge/storage', '/system/file']:
             await self.page.goto(self.origin + path)

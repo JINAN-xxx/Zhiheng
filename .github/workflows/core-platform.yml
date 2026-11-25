@@ -66,11 +66,6 @@ jobs:
           python -m pip install -r requirements-dev-core.txt playwright==1.62.0
           python -m pip install --no-deps --no-build-isolation .
           python -m playwright install --with-deps chromium
-      - name: Check core integration code
-        working-directory: backend
-        run: |
-          python -m ruff check --config ruff.toml src tests/core
-          python -m ruff format --check --config ruff.toml src tests/core
       - name: Start independent vector and file services for integration tests
         run: |
           ./deploy.sh --env-file "$RUNNER_TEMP/core-vector.env" init
@@ -99,23 +94,14 @@ jobs:
               stream.write('ZHIHENG_TEST_S3_SECRET_KEY=' + values['CORE_FILES_ROOT_PASSWORD'] + '\n')
           PY
       - name: Run PostgreSQL, Redis and local model integration tests
-        working-directory: backend
-        run: python -m pytest tests/core -q
+        run: bash tools/verify-core.sh backend-integration
       - name: Install frontend with npm 11
         working-directory: frontend
         run: |
           npm install --global npm@11.9.0
           npm ci
-      - name: Check frontend behavior, rules and types
-        working-directory: frontend
-        run: |
-          npm run test:core
-          npm run lint:core
-          npm run format:check
-          npm run typecheck
-      - name: Build the independent platform
-        working-directory: frontend
-        run: npm run build:platform
+      - name: Check and build the frontend
+        run: bash tools/verify-core.sh frontend
       - name: Start the built platform preview
         working-directory: frontend
         run: |
@@ -195,7 +181,7 @@ jobs:
           done
       - name: Check every declared HTTP and SSE browser regression
         run: |
-          python frontend/tests/browser/run_regressions.py \
+          bash tools/verify-core.sh browser \
             --base-url http://127.0.0.1:15191 --source-url http://127.0.0.1:15192 \
             --output "$RUNNER_TEMP/core-browser-results" --workers 1
       - name: Stop preview and fixture hosts

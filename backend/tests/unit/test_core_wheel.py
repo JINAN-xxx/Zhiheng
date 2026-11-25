@@ -1,4 +1,5 @@
 import runpy
+import shutil
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
@@ -8,6 +9,14 @@ import pytest
 
 SOURCE_ROOT = Path(__file__).resolve().parents[3]
 CHECKER_PATH = SOURCE_ROOT / 'tools/check_core_wheel.py'
+BACKEND_ROOT = SOURCE_ROOT / 'backend'
+MIGRATION_ROOT = BACKEND_ROOT / 'migrations'
+DATABASE_MODULE = 'zhiheng/infrastructure/database.py'
+MIGRATION_PREFIX = 'zhiheng_platform-0.1.0.data/data/share/zhiheng/migrations/'
+MIGRATION_FILES = {
+    MIGRATION_PREFIX + path.relative_to(MIGRATION_ROOT).as_posix(): path
+    for path in [MIGRATION_ROOT / 'env.py', *sorted((MIGRATION_ROOT / 'versions').glob('*.py'))]
+}
 DIST_INFO = 'zhiheng_platform-0.1.0.dist-info'
 METADATA_MEMBER = DIST_INFO + '/METADATA'
 LICENSE_METADATA = (
@@ -18,6 +27,7 @@ REQUIRED_MEMBERS = (
     'zhiheng/cli/main.py',
     'zhiheng/__init__.py',
     'zhiheng/py.typed',
+    DATABASE_MODULE,
     'zhiheng/shared/references.py',
     'zhiheng/application/developer/management.py',
     'zhiheng/modules/billing/public.py',
@@ -167,58 +177,7 @@ REQUIRED_MEMBERS = (
     'zhiheng/modules/knowledge/graph/service.py',
     'zhiheng/modules/knowledge/graph/store.py',
     'zhiheng/worker/graph_runner.py',
-    *(
-        f'zhiheng_platform-0.1.0.data/data/share/zhiheng/migrations/{name}'
-        for name in (
-            'env.py',
-            'versions/0001_core.py',
-            'versions/0002_developer.py',
-            'versions/0003_skills.py',
-            'versions/0004_agents.py',
-            'versions/0005_work.py',
-            'versions/0006_files.py',
-            'versions/0007_knowledge.py',
-            'versions/0008_graph.py',
-            'versions/0009_message_actions.py',
-            'versions/0010_admin_console.py',
-            'versions/0011_builtin_admin_role.py',
-            'versions/0012_platform_credits.py',
-            'versions/0013_skill_revision_history.py',
-            'versions/0014_personal_skill_ownership.py',
-            'versions/0015_resource_api_access.py',
-            'versions/0016_file_purpose.py',
-            'versions/0017_chat_context_memory.py',
-            'versions/0018_file_job_cursor.py',
-            'versions/0019_developer_key_deletion.py',
-            'versions/0020_knowledge_library.py',
-            'versions/0021_knowledge_settings.py',
-            'versions/0022_knowledge_invitations.py',
-            'versions/0023_knowledge_link_only.py',
-            'versions/0024_knowledge_rerank_required.py',
-            'versions/0025_product_closure.py',
-            'versions/0026_model_output_range.py',
-            'versions/0027_default_work_skills.py',
-            'versions/0028_document_parsing.py',
-            'versions/0029_application_governance.py',
-            'versions/0030_assistant_conversations.py',
-            'versions/0031_assistant_turn_versions.py',
-            'versions/0032_skill_market.py',
-            'versions/0033_assistant_session_actions.py',
-            'versions/0034_permission_tree.py',
-            'versions/0035_chat_checkpoints.py',
-            'versions/0036_chat_runtime_cleanup.py',
-            'versions/0037_model_capacity_note.py',
-            'versions/0038_skill_receipt_payload.py',
-            'versions/0039_retired_runtime_fields.py',
-            'versions/0040_assistant_agents.py',
-            'versions/0041_work_agent.py',
-            'versions/0041_assistant_attachments.py',
-            'versions/0042_workspace_merge.py',
-            'versions/0043_workspace_execution.py',
-            'versions/0044_key_object_grants.py',
-            'versions/0045_developer_key_controls.py',
-        )
-    ),
+    *MIGRATION_FILES,
 )
 
 
@@ -236,6 +195,10 @@ def write_wheel(
     omit: tuple[str, ...] = (),
 ) -> Path:
     entries: dict[str, str | bytes] = dict.fromkeys(members, '')
+    if DATABASE_MODULE in entries:
+        entries[DATABASE_MODULE] = (BACKEND_ROOT / 'src' / DATABASE_MODULE).read_bytes()
+    for member in set(members) & MIGRATION_FILES.keys():
+        entries[member] = MIGRATION_FILES[member].read_bytes()
     entries[METADATA_MEMBER] = LICENSE_METADATA
     for filename in ('LICENSE', 'THIRD_PARTY_NOTICES.md'):
         entries[f'{DIST_INFO}/licenses/{filename}'] = (SOURCE_ROOT / filename).read_bytes()
@@ -287,65 +250,35 @@ def test_rejects_a_wheel_missing_the_cli(verify_wheel: Callable[[Path], Path], t
         verify_wheel(tmp_path)
 
 
-@pytest.mark.parametrize(
-    'revision',
-    [
-        '0001_core.py',
-        '0002_developer.py',
-        '0003_skills.py',
-        '0004_agents.py',
-        '0005_work.py',
-        '0006_files.py',
-        '0007_knowledge.py',
-        '0008_graph.py',
-        '0009_message_actions.py',
-        '0010_admin_console.py',
-        '0011_builtin_admin_role.py',
-        '0012_platform_credits.py',
-        '0013_skill_revision_history.py',
-        '0014_personal_skill_ownership.py',
-        '0015_resource_api_access.py',
-        '0016_file_purpose.py',
-        '0017_chat_context_memory.py',
-        '0018_file_job_cursor.py',
-        '0019_developer_key_deletion.py',
-        '0020_knowledge_library.py',
-        '0021_knowledge_settings.py',
-        '0022_knowledge_invitations.py',
-        '0023_knowledge_link_only.py',
-        '0024_knowledge_rerank_required.py',
-        '0025_product_closure.py',
-        '0026_model_output_range.py',
-        '0027_default_work_skills.py',
-        '0028_document_parsing.py',
-        '0029_application_governance.py',
-        '0030_assistant_conversations.py',
-        '0031_assistant_turn_versions.py',
-        '0032_skill_market.py',
-        '0033_assistant_session_actions.py',
-        '0034_permission_tree.py',
-        '0035_chat_checkpoints.py',
-        '0036_chat_runtime_cleanup.py',
-        '0037_model_capacity_note.py',
-        '0038_skill_receipt_payload.py',
-        '0039_retired_runtime_fields.py',
-        '0040_assistant_agents.py',
-        '0041_work_agent.py',
-        '0041_assistant_attachments.py',
-        '0042_workspace_merge.py',
-        '0043_workspace_execution.py',
-        '0044_key_object_grants.py',
-        '0045_developer_key_controls.py',
-    ],
-)
+@pytest.mark.parametrize('member', MIGRATION_FILES)
 def test_requires_all_database_migration_revisions(
-    verify_wheel: Callable[[Path], Path], tmp_path: Path, revision: str
+    verify_wheel: Callable[[Path], Path], tmp_path: Path, member: str
 ) -> None:
     write_wheel(
         tmp_path,
-        tuple(name for name in REQUIRED_MEMBERS if not name.endswith(revision)),
+        REQUIRED_MEMBERS,
+        omit=(member,),
     )
     with pytest.raises(ValueError, match='migration'):
+        verify_wheel(tmp_path)
+
+
+def test_rejects_stale_or_extra_migration_resources(verify_wheel: Callable[[Path], Path], tmp_path: Path) -> None:
+    write_wheel(tmp_path, REQUIRED_MEMBERS, contents={MIGRATION_PREFIX + 'env.py': '# stale migration environment'})
+    with pytest.raises(ValueError, match='migration content differs'):
+        verify_wheel(tmp_path)
+
+    extra = MIGRATION_PREFIX + 'versions/deleted_migration.py'
+    write_wheel(tmp_path, (*REQUIRED_MEMBERS, extra))
+    with pytest.raises(ValueError, match='migration inventory differs'):
+        verify_wheel(tmp_path)
+
+
+def test_rejects_wheel_with_mismatched_runtime_schema_version(
+    verify_wheel: Callable[[Path], Path], tmp_path: Path
+) -> None:
+    write_wheel(tmp_path, REQUIRED_MEMBERS, contents={DATABASE_MODULE: "SCHEMA_REVISION = 'wrong'"})
+    with pytest.raises(ValueError, match='Alembic and runtime schema revisions differ'):
         verify_wheel(tmp_path)
 
 
@@ -440,7 +373,8 @@ def fixture_source_package(directory: Path) -> None:
         if member.startswith('zhiheng/') and member.endswith('.py'):
             path = directory / member
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(b'')
+            path.write_bytes((BACKEND_ROOT / 'src' / member).read_bytes() if member == DATABASE_MODULE else b'')
+    shutil.copytree(MIGRATION_ROOT, directory.parent / 'migrations', ignore=shutil.ignore_patterns('__pycache__'))
 
 
 def test_accepts_wheel_with_exact_source_files_and_contents(tmp_path: Path) -> None:
@@ -449,6 +383,28 @@ def test_accepts_wheel_with_exact_source_files_and_contents(tmp_path: Path) -> N
     wheel = write_wheel(tmp_path, REQUIRED_MEMBERS)
     verifier = cast('Callable[..., Path]', runpy.run_path(str(CHECKER_PATH))['verify_core_wheel'])
     assert verifier(tmp_path, source_root=source) == wheel
+
+
+def test_rejects_diverged_alembic_migration_graph(tmp_path: Path) -> None:
+    source = tmp_path / 'src'
+    fixture_source_package(source)
+    (tmp_path / 'migrations/versions/orphan.py').write_text(
+        "revision = 'orphan'\ndown_revision = None\nbranch_labels = None\ndepends_on = None\n"
+    )
+    write_wheel(tmp_path, REQUIRED_MEMBERS)
+    verifier = cast('Callable[..., Path]', runpy.run_path(str(CHECKER_PATH))['verify_core_wheel'])
+    with pytest.raises(ValueError, match='Expected one Alembic migration head'):
+        verifier(tmp_path, source_root=source)
+
+
+def test_rejects_source_with_mismatched_runtime_schema_version(tmp_path: Path) -> None:
+    source = tmp_path / 'src'
+    fixture_source_package(source)
+    (source / DATABASE_MODULE).write_text("SCHEMA_REVISION = 'wrong'")
+    write_wheel(tmp_path, REQUIRED_MEMBERS)
+    verifier = cast('Callable[..., Path]', runpy.run_path(str(CHECKER_PATH))['verify_core_wheel'])
+    with pytest.raises(ValueError, match='Alembic and runtime schema revisions differ'):
+        verifier(tmp_path, source_root=source)
 
 
 def test_rejects_deleted_module_left_in_build_cache(tmp_path: Path) -> None:

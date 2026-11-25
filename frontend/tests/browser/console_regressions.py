@@ -38,7 +38,7 @@ class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTest
             return
         config = {'name': '核对助手', 'description': '真实接口夹具', 'model_id': 'm1', 'system_prompt': '核对内容', 'welcome_message': '', 'skill_slugs': [], 'knowledge_base_ids': [], 'application_id': None, 'temperature': 0.7, 'max_tokens': 512}
         agent = {**config, 'id': 'a1', 'owner_id': 'u1', 'version': 1, 'status': 'disabled'}
-        skill = {'id': 's1', 'slug': 'review', 'name': '核对技能', 'description': '按原文核对', 'package_version': '1.0.0', 'version': 1, 'status': 'enabled', 'source': 'builtin', 'revision_id': 'rev1', 'content_hash': 'hash', 'file_count': 1, 'total_bytes': 123}
+        skill = {'id': 's1', 'slug': 'review', 'name': '核对技能', 'description': '按原文核对', 'package_version': '1.0.0', 'version': 1, 'status': 'enabled', 'source': 'upload', 'revision_id': 'rev1', 'content_hash': 'hash', 'file_count': 1, 'total_bytes': 123}
         kb = {'id': 'k1', 'name': '核对知识库', 'description': '', 'owner_id': 'u1', 'access': 'private', 'version': 1, 'acl_version': 1, 'embed_model_id': 'e1', 'chunk_size': 800, 'chunk_overlap': 100, 'active_revision': None, 'active_job_id': None, 'index_status': 'empty', 'document_count': 0, 'last_error': None, 'enable_knowledge_graph': False, 'llm_model_id': None, 'graph_status': 'disabled', 'created_at': '2026-10-28T01:00:00Z', 'updated_at': '2026-10-28T01:00:00Z', 'can_manage': True}
         if path == '/api/auth/me':
             body = {'id': 'u1', 'username': 'admin' if self.admin else 'member', 'is_admin': self.admin, 'permissions': granted_permissions('platform:overview:read', 'platform:models:read', 'platform:agents:read', 'platform:knowledge:read', 'platform:skills:read')}

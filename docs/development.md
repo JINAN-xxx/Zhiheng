@@ -2,7 +2,7 @@
 
 ## 环境与源码运行
 
-后端支持 Python 3.10+，默认容器使用 Python 3.12。前端使用 Node 24 与 npm 11，依赖按锁文件安装。
+后端包的最低 Python 版本为 3.10。核心单测、静态检查和打包在 Python 3.10 与 3.13 上运行。部署镜像及平台完整集成以 Python 3.12 为基准。前端使用 Node 24 与 npm 11，依赖按锁文件安装。
 
 ~~~bash
 python3 -m venv .venv
@@ -14,7 +14,7 @@ npm ci
 cd ..
 ~~~
 
-使用独立开发配置，先按[部署指南](deployment.md)启动依赖，再运行 dev.sh。API 自动重载，前端热更新；Worker 修改后执行 ./dev.sh restart-worker。受管文件统一使用业务 MinIO，API 与 Worker 使用同一私有桶与专用应用账号。
+使用独立开发配置，先按[部署指南](deployment.md)启动依赖，再运行 `dev.sh`。API 自动重载，前端热更新。Worker 修改后通过同一环境文件或显式接管参数执行 `restart-worker`。受管文件统一使用业务 MinIO，API 与 Worker 使用同一私有桶及专用应用账号。
 
 ## 后端检查
 
@@ -28,6 +28,29 @@ python -m pytest tests/unit -q
 ~~~
 
 CI 的 Foundation 在 Python 3.10 和 3.13 上执行全部 `tests/unit`，并校验源码发布选择、wheel 内容、全部迁移和许可；Platform 在 Python 3.12 上执行全部 `tests/core`、前端检查、真实 API E2E 和完整浏览器回归。两组检查共同构成门禁。
+
+### 仓库门禁入口
+
+GitHub Actions 和其他 Linux 流水线可以复用仓库内的命令。先安装上面列出的锁定依赖，再按阶段执行：
+
+```bash
+bash tools/verify-core.sh foundation
+bash tools/verify-core.sh wheel /tmp/zhiheng-wheel
+bash tools/verify-core.sh backend-integration
+bash tools/verify-core.sh frontend
+bash tools/verify-core.sh browser --base-url http://127.0.0.1:15191 \
+  --source-url http://127.0.0.1:15192 --output /tmp/zhiheng-browser-results
+```
+
+后端集成阶段需要下文列出的独立测试服务，包括 Milvus。缺少必需环境变量时直接失败，测试跳过原因会单列。浏览器阶段要求已启动的构建站点和源码 fixture host，准备方式见下文。已安装 wheel 的真实 API E2E 还需按 `.github/workflows/core-platform.yml` 单独运行。
+
+### Gitee 合并门禁
+
+2026-11-24 使用 Gitee 公共 API 核对 `cyhja/zhiheng`，`main` 返回 `protected: false`，没有打开的合并请求可以核对检查状态。仓库中的 GitHub Actions 文件不会自行成为 Gitee 的合并保护。
+
+1. 在 Gitee 为合并请求配置流水线，使用本节的仓库命令。基础验证与平台集成使用各自的依赖和测试服务。启用工作空间执行的发布另跑沙盒专项。
+2. 先在测试分支确认流水线能上报失败和成功，记录实际的检查名称。配置 `main` 分支保护，将这些检查设为合并前必需。
+3. 核对一次失败的合并请求会被阻止，通过检查后才能合并，并在发布记录中保留该合并请求及流水线结果。
 
 ## 前端检查
 

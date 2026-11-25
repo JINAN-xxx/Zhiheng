@@ -7,6 +7,7 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from tests.core.integration.test_skills import install
 from tests.core.legacy_work import legacy_task as task
 from tests.core.legacy_work import legacy_turn as turn
 from tests.core.legacy_work import published
@@ -16,7 +17,7 @@ from tests.core.permission_support import (
     member_agent_work_permissions,  # noqa: F401 - pytest fixture by name
 )
 from zhiheng.modules.knowledge.orm import RetrievalIntent
-from zhiheng.modules.skills.orm import SkillRevision
+from zhiheng.modules.skills.orm import SkillLegacyBinding, SkillRevision
 from zhiheng.modules.work.public import WorkTurn
 from zhiheng.shared.time import utcnow
 from zhiheng.worker.execution import execute_run
@@ -30,14 +31,12 @@ async def test_legacy_builtin_preparation_owner_precedes_shared_global_id(
     model_id: str,
     owner_hint: bool,
 ) -> None:
-    await grant_member(admin, grants('platform:skills', 'use', 'delete'))
+    await grant_member(admin, grants('platform:skills', 'use', 'create', 'delete'))
     container = app.state.container
     mine = (await admin.get('/api/skills/available')).json()[0]
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
         await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
-        available = await member.get('/api/skills/available')
-        assert available.status_code == 200, available.text
-        theirs = next(row for row in available.json() if row['slug'] == mine['slug'])
+        theirs = await install(member, mine['slug'], 'Private member skill')
         agent = await published(member, model_id, skill_slugs=[mine['slug']])
         work = await task(member, agent)
         assert (await admin.get('/api/work/tasks/' + work['id'])).status_code == 404
@@ -45,8 +44,14 @@ async def test_legacy_builtin_preparation_owner_precedes_shared_global_id(
             my_owner = await container.identity.authenticate(session, admin.cookies['zhiheng_session'])
             their_owner = await container.identity.authenticate(session, member.cookies['zhiheng_session'])
             mine_ids = await container.skills.reference_ids(session, my_owner.id, UUID(mine['id']))
-            their_ids = await container.skills.reference_ids(session, their_owner.id, UUID(theirs['id']))
             legacy = next(value for value in mine_ids if value != UUID(mine['id']))
+            session.add(
+                SkillLegacyBinding(
+                    owner_id=their_owner.id, legacy_skill_id=legacy, personal_skill_id=UUID(theirs['id'])
+                )
+            )
+            await session.flush()
+            their_ids = await container.skills.reference_ids(session, their_owner.id, UUID(theirs['id']))
             dependencies = {
                 'member_config': {'skill_slugs': [mine['slug']]},
                 'member_skills': [{'skill_id': str(legacy), 'slug': mine['slug']}],
@@ -83,10 +88,8 @@ async def test_legacy_builtin_preparation_owner_precedes_shared_global_id(
                 for revision in await session.scalars(select(SkillRevision).where(SkillRevision.id.in_(revisions)))
             }
             assert set(packages) == revisions
-        for client, skill in ((admin, mine), (member, theirs)):
-            protected = await client.delete(f'/api/skills/{skill["id"]}', headers={'content-type': 'application/json'})
-            assert protected.status_code == 403
-            assert protected.json()['error']['code'] == 'builtin_skill_protected'
+        protected = await member.delete(f'/api/skills/{theirs["id"]}', headers={'content-type': 'application/json'})
+        assert protected.status_code == 409 and protected.json()['error']['code'] == 'skill_referenced'
         disabled = await admin.patch(
             f'/api/skills/{mine["id"]}/status',
             json={'status': 'disabled', 'expected_version': mine['version']},

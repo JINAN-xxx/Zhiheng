@@ -16,10 +16,9 @@ import DocumentParsingSettings from '../components/DocumentParsingSettings.vue'
 import WorkspacePanel from '../../../shared/components/WorkspacePanel.vue'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
-import { identity } from '../../identity/public.ts'
+import { canUseCapability } from '../../identity/public.ts'
 import { getModels } from '../../models/public.ts'
 import type { ChatModel } from '../../models/public.ts'
-import { hasAnyPermission } from '../../identity/public.ts'
 import { getKnowledgeDefaults, updateKnowledgeDefaults } from '../api/index.ts'
 
 const router = useRouter()
@@ -29,7 +28,7 @@ const loading = ref(false),
   saving = ref(false),
   error = ref('')
 const models = ref<ChatModel[]>([])
-const writable = computed(() => hasAnyPermission(identity.value, 'system:configs:update'))
+const writable = computed(() => canUseCapability('knowledge_settings', 'update'))
 const form = reactive({
   default_embed_model_id: null as string | null,
   default_rerank_model_id: null as string | null,
@@ -123,7 +122,9 @@ onBeforeUnmount(() => {
       subtitle="向量与切片参数用于新建；默认重排用于所有继承默认的知识库"
     >
       <template #actions>
-        <AButton @click="router.push('/knowledge')">返回知识库</AButton>
+        <AButton v-if="canUseCapability('knowledge', 'read')" @click="router.push('/knowledge')">
+          返回知识库
+        </AButton>
         <RefreshButton label="刷新知识服务" :loading="loading" :disabled="saving" @click="load" />
         <AButton v-if="writable" type="primary" :loading="saving" :disabled="loading" @click="save"
           >保存配置</AButton

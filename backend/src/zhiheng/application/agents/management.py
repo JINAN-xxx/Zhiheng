@@ -11,12 +11,14 @@ from zhiheng.modules.agents.public import (
     AgentSummary,
     AgentUpdate,
     AssistantConversations,
+    PlazaConfig,
+    PlazaPublishRequest,
 )
 from zhiheng.modules.developer.public import ApplicationService
 from zhiheng.modules.files.public import FileService
 from zhiheng.modules.knowledge.public import KnowledgeService, RerankPolicy
 from zhiheng.modules.models.public import ModelBinding, ModelService
-from zhiheng.modules.skills.public import SkillService, resolve_selection
+from zhiheng.modules.skills.public import SkillService, platform_skill_id, resolve_selection
 from zhiheng.modules.work.public import WorkService
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
@@ -66,7 +68,9 @@ class AgentManagementService:
             references = await self._work.agent_references(current, target)
             references.extend(await self._runs.agent_references(current, target))
             conversation_ids = await AssistantConversations().conversation_ids(current, target)
-            retired_conversations.extend(conversation_ids)
+            retired_conversations.extend(
+                await AssistantConversations().conversation_ids(current, target, personal_only=True)
+            )
             references.extend(await self._runs.assistant_references(current, target, conversation_ids))
             if self._knowledge_resources is not None:
                 references.extend(await self._knowledge_resources.references.agent_references(current, target))
@@ -163,3 +167,33 @@ class AgentManagementService:
                 continue
             result.append(summary)
         return result
+
+    async def publish_plaza(
+        self, session: AsyncSession, principal: Principal, agent_id: UUID, request: PlazaPublishRequest
+    ) -> AgentInfo:
+        principal.require_permission('platform:agents:plaza_publish')
+        agent = await self._agents.get(session, principal, agent_id, expected_version=request.expected_version)
+        if not agent.enabled:
+            raise AppError('assistant_disabled', '请先启用助手，再上架广场', 409)
+        config = agent.configuration
+        if any(platform_skill_id(slug) is None for slug in config.skill_slugs):
+            raise AppError('assistant_plaza_dependencies', '广场助手只能绑定平台技能', 422)
+        if config.skill_slugs:
+            require_capability(principal, 'skills', 'use')
+            await resolve_selection(session, principal.id, config.skill_slugs)
+        if config.knowledge_base_ids:
+            if not request.allow_knowledge:
+                raise AppError('assistant_plaza_knowledge_consent', '请确认允许使用者通过此助手检索绑定资料', 422)
+            require_capability(principal, 'knowledge', 'query')
+            assert self.knowledge is not None
+            await self.knowledge.assert_plaza_sources(session, principal.personal(), config.knowledge_base_ids)
+        if request.department_id is not None:
+            assert self.knowledge is not None
+            departments = await self.knowledge.knowledge.identity.active_departments(session)
+            if not any(identifier == request.department_id for identifier, _ in departments):
+                raise AppError('assistant_plaza_department', '请选择有效的部门', 422)
+        await self.validate(session, principal.personal(), config)
+        published = PlazaConfig(
+            **config.model_dump(), department_id=request.department_id, allow_knowledge=request.allow_knowledge
+        )
+        return await self._agents.publish_plaza(session, principal, agent_id, request.expected_version, published)

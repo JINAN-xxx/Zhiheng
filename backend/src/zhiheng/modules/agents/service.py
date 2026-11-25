@@ -9,7 +9,16 @@ from uuid import UUID
 from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.orm import aliased
 
-from zhiheng.modules.agents.contracts import AgentConfig, AgentInfo, AgentPage, AgentSummary, safe_text
+from zhiheng.modules.agents.contracts import (
+    AgentConfig,
+    AgentInfo,
+    AgentPage,
+    AgentSummary,
+    PlazaAssistant,
+    PlazaAssistantPage,
+    PlazaConfig,
+    safe_text,
+)
 from zhiheng.modules.agents.orm import Agent, AgentRunAudit, AssistantConversation, AssistantSummary
 from zhiheng.runtime.contracts import TERMINAL_STATUSES, ClaimedRun
 from zhiheng.runtime.orm import Run
@@ -21,6 +30,7 @@ from zhiheng.shared.time import utcnow
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from sqlalchemy import Select
     from sqlalchemy.ext.asyncio import AsyncSession
     from sqlalchemy.sql.elements import ColumnElement
 
@@ -74,8 +84,99 @@ class AgentService:
                 'status': 'enabled' if row.enabled else 'disabled',
                 'created_at': row.created_at,
                 'updated_at': row.updated_at,
+                'plaza_version': row.plaza_version,
+                'plaza_department_id': row.plaza_config.get('department_id') if row.plaza_config else None,
             }
         )
+
+    @staticmethod
+    def _published_rows() -> Select[tuple[Agent]]:
+        return select(Agent).where(
+            Agent.deleted_at.is_(None), Agent.plaza_config.is_not(None), Agent.plaza_version.is_not(None)
+        )
+
+    @staticmethod
+    def _plaza_info(row: Agent, principal: Principal) -> PlazaAssistant:
+        config = PlazaConfig.model_validate(row.plaza_config)
+        assert row.plaza_version is not None
+        return PlazaAssistant(
+            id=row.id,
+            name=config.name,
+            description=config.description,
+            welcome_message=config.welcome_message,
+            plaza_version=row.plaza_version,
+            can_start=config.includes(principal.department_id),
+        )
+
+    def _visible_plaza(self, principal: Principal) -> Select[tuple[Agent]]:
+        query = self._published_rows().where(Agent.enabled)
+        if principal.is_admin:
+            return query
+        department = Agent.plaza_config['department_id'].astext
+        if principal.department_id is None:
+            return query.where(department.is_(None))
+        return query.where(or_(department.is_(None), department == str(principal.department_id)))
+
+    async def plaza_detail(self, session: AsyncSession, principal: Principal, agent_id: UUID) -> PlazaAssistant:
+        row = await session.scalar(self._visible_plaza(principal).where(Agent.id == agent_id))
+        if row is None:
+            raise AppError('assistant_not_on_plaza', '此助手未上架或已下架', 404)
+        return self._plaza_info(row, principal)
+
+    async def plaza_page(
+        self, session: AsyncSession, principal: Principal, *, search: str, page: int, page_size: int
+    ) -> PlazaAssistantPage:
+        try:
+            safe_text(search)
+        except ValueError as error:
+            raise AppError('invalid_agent_search', '搜索条件无效', 422) from error
+        query = self._visible_plaza(principal)
+        name = Agent.plaza_config['name'].astext
+        if term := search.strip():
+            query = query.where(
+                or_(
+                    name.icontains(term, autoescape=True),
+                    Agent.plaza_config['description'].astext.icontains(term, autoescape=True),
+                )
+            )
+        total = await session.scalar(select(func.count()).select_from(query.subquery()))
+        rows = await session.scalars(query.order_by(name, Agent.id).offset((page - 1) * page_size).limit(page_size))
+        return PlazaAssistantPage(items=[self._plaza_info(row, principal) for row in rows], total=total or 0)
+
+    async def publish_plaza(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        agent_id: UUID,
+        expected_version: int,
+        config: PlazaConfig,
+    ) -> AgentInfo:
+        principal.require_permission('platform:agents:plaza_publish')
+        row = await self._row(session, principal, agent_id, lock=True)
+        if row.version != expected_version:
+            raise AppError('agent_version_conflict', '智能体已更新，请刷新后重试', 409)
+        row.version += 1
+        row.updated_at = utcnow()
+        row.plaza_version = row.version
+        row.plaza_config = config.model_dump(mode='json')
+        await session.flush()
+        return await self.get(session, principal, agent_id)
+
+    async def unpublish_plaza(
+        self, session: AsyncSession, principal: Principal, agent_id: UUID, expected_version: int
+    ) -> None:
+        principal.require_permission('platform:agents:plaza_publish')
+        query = self._published_rows().where(Agent.id == agent_id)
+        if not principal.is_admin:
+            query = query.where(Agent.owner_id == principal.id)
+        row = await session.scalar(query.with_for_update().execution_options(populate_existing=True))
+        if row is None:
+            raise AppError('assistant_not_on_plaza', '此助手未上架或已下架', 404)
+        if row.plaza_version != expected_version:
+            raise AppError('assistant_plaza_version_conflict', '广场版本已更新，请刷新后重试', 409)
+        row.plaza_config = row.plaza_version = None
+        row.version += 1
+        row.updated_at = utcnow()
 
     async def require_enabled_application(
         self, session: AsyncSession, principal: Principal, agent_id: UUID, application_id: UUID, *, lock: bool = False
@@ -143,17 +244,20 @@ class AgentService:
             .where(
                 AssistantConversation.agent_id == agent_id,
                 AssistantConversation.owner_id == principal.id,
+                AssistantConversation.plaza.is_(False),
                 AssistantConversation.deleted_at.is_(None),
             )
             .values(deleted_at=row.deleted_at)
         )
         row.enabled = False
+        row.plaza_config = row.plaza_version = None
         row.version += 1
         return info.model_copy(
             update={
                 'version': row.version,
                 'updated_at': row.updated_at,
                 'status': 'disabled',
+                'plaza_version': None,
             }
         )
 
@@ -234,7 +338,13 @@ class AgentService:
         ]
 
     async def model_references(self, session: AsyncSession, model_id: UUID) -> list[ResourceReference]:
-        return await self._configuration_references(session, Agent.config['model_id'].astext == str(model_id))
+        return await self._configuration_references(
+            session,
+            or_(
+                Agent.config['model_id'].astext == str(model_id),
+                Agent.plaza_config['model_id'].astext == str(model_id),
+            ),
+        )
 
     async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
         return bool(await self.model_references(session, model_id))
@@ -282,7 +392,8 @@ class AgentService:
         session: AsyncSession,
         *,
         run_id: UUID,
-        agent: AgentInfo,
+        agent_id: UUID,
+        owner_id: UUID,
         config: AgentConfig,
         skills: SkillSelection,
         knowledge: list[dict[str, object]],
@@ -291,8 +402,8 @@ class AgentService:
         session.add(
             AgentRunAudit(
                 run_id=run_id,
-                agent_id=agent.id,
-                owner_id=agent.owner_id,
+                agent_id=agent_id,
+                owner_id=owner_id,
                 config=config.model_dump(mode='json'),
                 skills=skill_values(skills),
                 knowledge=knowledge,

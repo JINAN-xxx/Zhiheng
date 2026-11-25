@@ -1,7 +1,7 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
 
 from zhiheng.api.common.contracts import EmptyRequest
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
@@ -13,6 +13,11 @@ from zhiheng.modules.agents.public import (
     AgentPage,
     AgentSummary,
     AgentUpdate,
+    AssistantConversationInfo,
+    PlazaAssistant,
+    PlazaAssistantPage,
+    PlazaDepartment,
+    PlazaPublishRequest,
     PreviewRequest,
     VersionRequest,
 )
@@ -42,6 +47,74 @@ async def available(
     container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> list[AgentSummary]:
     return await container.agent_management.available(session, principal)
+
+
+@router.get('/plaza')
+async def plaza_list(
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 12,
+    search: Annotated[str, Query(max_length=100)] = '',
+) -> PlazaAssistantPage:
+    return await container.agents.plaza_page(session, principal, search=search, page=page, page_size=page_size)
+
+
+@router.get('/plaza/departments')
+async def plaza_departments(
+    container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
+) -> list[PlazaDepartment]:
+    return [
+        PlazaDepartment(id=identifier, name=name)
+        for identifier, name in await container.identity.active_departments(session)
+    ]
+
+
+@router.get('/plaza/history')
+async def plaza_history(
+    container: ContainerDependency, principal: PrincipalDependency, before: UUID | None = None
+) -> list[AssistantConversationInfo]:
+    return await container.assistant_conversations.plaza_history(principal, before=before)
+
+
+@router.get('/plaza/{agent_id}')
+async def plaza_get(
+    agent_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
+) -> PlazaAssistant:
+    return await container.agents.plaza_detail(session, principal, agent_id)
+
+
+@router.put('/{agent_id}/plaza')
+async def plaza_publish(
+    agent_id: UUID,
+    body: PlazaPublishRequest,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> AgentInfo:
+    async with session.begin():
+        result = await container.agent_management.publish_plaza(session, principal, agent_id, body)
+        await container.operations.record(
+            session, principal=principal, action='agent.plaza.publish', resource_type='agent', resource_id=str(agent_id)
+        )
+        return result
+
+
+@router.delete('/{agent_id}/plaza', status_code=204)
+async def plaza_unpublish(
+    agent_id: UUID,
+    body: VersionRequest,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> Response:
+    async with session.begin():
+        await container.agents.unpublish_plaza(session, principal, agent_id, body.expected_version)
+        await container.operations.record(
+            session, principal=principal, action='agent.plaza.withdraw', resource_type='agent', resource_id=str(agent_id)
+        )
+    return Response(status_code=204)
 
 
 @router.post('/knowledge-policy')

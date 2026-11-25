@@ -254,7 +254,22 @@ class IdentityService:
         )
         # Filter each role before union: another role must never reactivate retained, disabled child settings.
         granted = frozenset(code for group in permissions for code in effective_permissions(group))
-        return Principal(user.id, user.username, user.is_admin, granted)
+        department = None
+        if user.department_id is not None:
+            department = await session.scalar(
+                select(IdentityDepartment.id).where(
+                    IdentityDepartment.id == user.department_id, IdentityDepartment.is_active
+                )
+            )
+        return Principal(user.id, user.username, user.is_admin, granted, department)
+
+    async def active_departments(self, session: AsyncSession) -> list[tuple[UUID, str]]:
+        rows = await session.execute(
+            select(IdentityDepartment.id, IdentityDepartment.name)
+            .where(IdentityDepartment.is_active)
+            .order_by(IdentityDepartment.name, IdentityDepartment.id)
+        )
+        return list(rows.tuples())
 
     async def hash_password(self, password: str) -> str:
         if not MIN_PASSWORD_LENGTH <= len(password) <= MAX_PASSWORD_LENGTH:

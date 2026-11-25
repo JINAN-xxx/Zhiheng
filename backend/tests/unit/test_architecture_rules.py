@@ -276,3 +276,16 @@ def test_http_adapter_does_not_mutate_domain_stores(checker: ModuleType, source:
         'async def cancel(container, session, row):\n    await container.preparation.store.fail(session, row)\n',
     )
     assert [item.rule for item in checker.check_boundaries(root)] == ['transport-domain-state-mutation']
+
+
+@pytest.mark.parametrize('filename', ['agents.py', 'assistant_conversations.py'])
+def test_assistant_transport_routes_use_application_methods(
+    checker: ModuleType, source: Callable, filename: str
+) -> None:
+    root = source(
+        f'api/console/{filename}',
+        'async def endpoint(container, session, principal):\n'
+        '    await container.assistant_conversations.plaza_history(principal)\n'
+        '    await container.assistant_conversations.store.plaza_history(session, principal)\n',
+    )
+    assert [(item.line, item.rule) for item in checker.check_boundaries(root)] == [(3, 'assistant-transport-store')]

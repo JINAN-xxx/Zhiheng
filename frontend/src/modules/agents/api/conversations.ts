@@ -97,17 +97,32 @@ function parseDetail(value: unknown) {
   }
 }
 const base = (agentId: string) => `/agents/${encodeURIComponent(agentId)}/conversations`
-export const getAssistantConversations = (agentId: string, signal: AbortSignal, before?: string) =>
-  http.request(base(agentId) + (before ? `?before=${encodeURIComponent(before)}` : ''), {
+export const getAssistantConversations = (
+  agentId: string,
+  signal: AbortSignal,
+  before?: string,
+  plaza = false
+) => {
+  const query = new URLSearchParams()
+  if (before) query.set('before', before)
+  if (plaza) query.set('plaza', 'true')
+  return http.request(base(agentId) + (query.size ? `?${query}` : ''), {
+    signal,
+    decode: list(parseConversation)
+  })
+}
+export const getPlazaHistory = (signal: AbortSignal, before?: string) =>
+  http.request('/agents/plaza/history' + (before ? `?before=${encodeURIComponent(before)}` : ''), {
     signal,
     decode: list(parseConversation)
   })
 export const createAssistantConversation = (
   agentId: string,
   requestId: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  plaza = false
 ) =>
-  http.request(base(agentId), {
+  http.request(base(agentId) + (plaza ? '?plaza=true' : ''), {
     method: 'POST',
     body: { client_request_id: requestId },
     signal,
@@ -123,6 +138,28 @@ export const getAssistantConversation = (
     signal,
     decode: parseDetail
   })
+export const getAssistantSubmissionReceipt = (
+  agentId: string,
+  requestId: string,
+  createId: string,
+  conversationId: string | null,
+  signal: AbortSignal,
+  plaza: boolean
+) => {
+  const query = new URLSearchParams({ create_id: createId })
+  if (conversationId) query.set('conversation_id', conversationId)
+  if (plaza) query.set('plaza', 'true')
+  return http.request(`${base(agentId)}/submissions/${encodeURIComponent(requestId)}?${query}`, {
+    signal,
+    decode: (value) => {
+      const row = object(value)
+      return {
+        conversationId: row.conversation_id === null ? null : string(row.conversation_id),
+        accepted: boolean(row.accepted)
+      }
+    }
+  })
+}
 export const sendAssistantMessage = (
   agentId: string,
   id: string,
@@ -166,13 +203,21 @@ export const deleteAssistantConversation = (
     decode: decodeVoid
   })
 
-export const uploadAssistantAttachment = (agentId: string, file: File, signal: AbortSignal) =>
-  http.request(`${base(agentId)}/attachments?filename=${encodeURIComponent(file.name)}`, {
-    method: 'POST',
-    body: file,
-    signal,
-    decode: parseManagedFile
-  })
+export const uploadAssistantAttachment = (
+  agentId: string,
+  file: File,
+  signal: AbortSignal,
+  plaza = false
+) =>
+  http.request(
+    `${base(agentId)}/attachments?filename=${encodeURIComponent(file.name)}${plaza ? '&plaza=true' : ''}`,
+    {
+      method: 'POST',
+      body: file,
+      signal,
+      decode: parseManagedFile
+    }
+  )
 export const downloadAssistantAttachment = async (
   agentId: string,
   conversationId: string,

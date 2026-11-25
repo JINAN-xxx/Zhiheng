@@ -16,7 +16,7 @@ from zhiheng.bootstrap.container import Container
 from zhiheng.infrastructure.worker_heartbeat import WORKER_HEARTBEAT_INTERVAL_SECONDS, WORKER_HEARTBEAT_TTL_SECONDS
 from zhiheng.worker.consumer import ConsumerWorker
 from zhiheng.worker.graph_runner import GraphRunner
-from zhiheng.worker.maintenance import file_maintenance, maintain
+from zhiheng.worker.maintenance import file_maintenance, housekeeping, recover_work, run_cleanup_step
 from zhiheng.worker.publisher import publish_knowledge, publish_outbox
 
 if TYPE_CHECKING:
@@ -25,6 +25,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 QUIET_PASSES = 2
+MAINTENANCE_INTERVAL_SECONDS = 1
+FILE_SWEEP_TIMEOUT_SECONDS = 180
 
 
 class WorkerProcess:
@@ -37,7 +39,7 @@ class WorkerProcess:
         self._run_task: asyncio.Task[object] | None = None
         self._shutdown_task: asyncio.Task[None] | None = None
         self._stop, self._dispatch_requested = asyncio.Event(), asyncio.Event()
-        self._dispatch_passes = self._maintenance_passes = 0
+        self._dispatch_passes = self._recovery_passes = 0
         self._signals: list[tuple[signal.Signals, object, object]] = []
         self._closing = False
         self._heartbeat_member = f'{gethostname()}:{uuid4().hex}'
@@ -68,10 +70,13 @@ class WorkerProcess:
                 (
                     asyncio.create_task(self._dispatch(), name='worker-dispatch'),
                     asyncio.create_task(self._heartbeat(), name='worker-heartbeat'),
-                    asyncio.create_task(self._maintenance(), name='worker-maintenance'),
+                    asyncio.create_task(self._recover_work(), name='worker-recovery'),
+                    asyncio.create_task(self._housekeeping(), name='worker-housekeeping'),
                     asyncio.create_task(self._parsing(), name='worker-document-parsing'),
                 )
             )
+            if not self.burst:
+                self._tasks.append(asyncio.create_task(self._sweep_files(), name='worker-file-sweep'))
             if self._runner.poller is None:
                 raise RuntimeError('Graph runner did not start')
             self._tasks.append(self._runner.poller)
@@ -124,26 +129,29 @@ class WorkerProcess:
                 await commands.execute()
             await asyncio.sleep(WORKER_HEARTBEAT_INTERVAL_SECONDS)
 
-    async def _maintenance(self) -> None:
-        # Preserve the old quarter-hour plus twenty seconds file sweep schedule.
-        next_files = self._next_file_sweep()
+    async def _recover_work(self) -> None:
         while True:
-            await maintain(self.container)
-            self._maintenance_passes += 1
-            if not self.burst and time() >= next_files:
-                try:
-                    await asyncio.wait_for(file_maintenance(self.container), timeout=180)
-                except Exception as error:
-                    # FileJobs owns and records this attempt's failure. A housekeeping
-                    # failure must not interrupt unrelated model calls or retry this sweep.
-                    logger.error(
-                        'File maintenance failed error_type=%s sqlstate=%s frames=%s',
-                        type(error).__name__,
-                        database_sqlstate(error),
-                        exception_frames(error),
-                    )
-                next_files = self._next_file_sweep()
-            await asyncio.sleep(1)
+            await recover_work(self.container)
+            self._recovery_passes += 1
+            await asyncio.sleep(MAINTENANCE_INTERVAL_SECONDS)
+
+    async def _housekeeping(self) -> None:
+        while True:
+            await housekeeping(self.container)
+            await asyncio.sleep(MAINTENANCE_INTERVAL_SECONDS)
+
+    async def _sweep_files(self) -> None:
+        # Retain the quarter-hour-plus-twenty-seconds cadence, without delaying recovery.
+        due = self._next_file_sweep()
+        while True:
+            delay = due - time()
+            if delay > 0:
+                await asyncio.sleep(delay)
+                continue
+            await run_cleanup_step(
+                'File maintenance', lambda: file_maintenance(self.container), timeout_seconds=FILE_SWEEP_TIMEOUT_SECONDS
+            )
+            due = self._next_file_sweep()
 
     @staticmethod
     def _next_file_sweep() -> float:
@@ -185,12 +193,12 @@ class WorkerProcess:
         return True
 
     async def _drain(self) -> None:
-        stable, last_maintenance = 0, 0
+        stable, last_recovery = 0, 0
         while True:
             await asyncio.sleep(0.1)
-            if not self._dispatch_passes or self._maintenance_passes == last_maintenance:
+            if not self._dispatch_passes or self._recovery_passes == last_recovery:
                 continue
-            last_maintenance = self._maintenance_passes
+            last_recovery = self._recovery_passes
             stable = stable + 1 if await self._quiescent() else 0
             if stable >= QUIET_PASSES:
                 return

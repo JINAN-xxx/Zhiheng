@@ -16,7 +16,11 @@ let checkedAt = 0
 const identityTtl = 30000
 let version = 0
 let restorePromise: Promise<User | null> | null = null
+let sessionBoundary: ((ownerId: string | null) => void) | undefined
 export const identity = readonly(currentUser)
+export function setIdentitySessionBoundary(handler: (ownerId: string | null) => void): void {
+  sessionBoundary = handler
+}
 export function hasAnyPermission(
   user: Pick<User, 'is_admin' | 'permissions'> | null | undefined,
   ...codes: string[]
@@ -27,6 +31,7 @@ export function clearIdentity(): void {
   checkedAt = 0
   version += 1
   http.invalidate()
+  sessionBoundary?.(null)
   currentUser.value = null
   restorePromise = null
 }
@@ -41,6 +46,7 @@ export function restoreIdentity(force = false): Promise<User | null> {
         checkedAt = Date.now()
         if (JSON.stringify(currentUser.value) !== JSON.stringify(user)) {
           if (currentUser.value) http.invalidate()
+          if (currentUser.value?.id !== user.id) sessionBoundary?.(user.id)
           currentUser.value = user
         }
       }
@@ -67,6 +73,7 @@ export async function login(
   const expected = version
   const user = await authenticate(username, password, signal)
   if (expected === version && !signal.aborted) {
+    sessionBoundary?.(user.id)
     currentUser.value = user
     checkedAt = Date.now()
   }

@@ -18,6 +18,7 @@ import AiResourceShell from './components/AiResourceShell.vue'
 import PlatformTopbar from './components/PlatformTopbar.vue'
 import AssistantFloat from './components/AssistantFloat.vue'
 const route = useRoute()
+const conversationLayout = computed(() => route.meta.conversationLayout === true)
 const router = useRouter()
 const routeViewKey = computed(() => {
   if (route.matched.some((record) => record.name === 'admin')) return 'admin'
@@ -87,12 +88,7 @@ async function signOut(): Promise<void> {
               @toggle-sidebar="mobileOpen = true"
               @logout="signOut"
             />
-            <main
-              class="platform-page"
-              :class="{
-                'is-conversation': ['chat', 'work', 'assistant-chat'].includes(String(route.name))
-              }"
-            >
+            <main class="platform-page" :class="{ 'is-conversation': conversationLayout }">
               <AiResourceShell
                 v-if="
                   [
@@ -128,10 +124,7 @@ async function signOut(): Promise<void> {
               @logout="signOut"
               @navigate="mobileOpen = false"
           /></ADrawer>
-          <AssistantFloat
-            :conversation="['chat', 'work', 'assistant-chat'].includes(String(route.name))"
-            :suspended="isMobile && mobileOpen"
-          />
+          <AssistantFloat :conversation="conversationLayout" :suspended="isMobile && mobileOpen" />
         </div>
       </WorkWorkspaceProvider>
     </ChatWorkspaceProvider>

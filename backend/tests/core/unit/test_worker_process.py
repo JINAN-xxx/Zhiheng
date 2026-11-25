@@ -102,12 +102,17 @@ def process_fixture(monkeypatch: pytest.MonkeyPatch, failure: str = '') -> tuple
     monkeypatch.setattr(process, 'GraphRunner', Runner)
     monkeypatch.setattr(process, 'publish_outbox', publish)
     monkeypatch.setattr(process, 'publish_knowledge', AsyncMock())
-    monkeypatch.setattr(process, 'maintain', AsyncMock())
+    monkeypatch.setattr(
+        process, 'recover_work', AsyncMock(side_effect=RuntimeError(failure) if failure == 'recovery' else None)
+    )
+    monkeypatch.setattr(process, 'housekeeping', AsyncMock())
     value = process.WorkerProcess(container, (Consumer('first'), Consumer('second')), burst=False)
     return value, events, entered
 
 
-@pytest.mark.parametrize('failure', ['publisher_start', 'graph_start', 'consumer_run', 'consumer_return', 'dispatch'])
+@pytest.mark.parametrize(
+    'failure', ['publisher_start', 'graph_start', 'consumer_run', 'consumer_return', 'dispatch', 'recovery']
+)
 async def test_startup_and_supervised_failures_release_every_resource(
     monkeypatch: pytest.MonkeyPatch, failure: str
 ) -> None:

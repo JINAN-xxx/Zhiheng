@@ -1,4 +1,4 @@
-import { http } from '../../../shared/http.ts'
+import { decodeVoid, http } from '../../../shared/http.ts'
 import { list, number, object, string } from '../../../shared/validation.ts'
 export interface Skill {
   skillId: string
@@ -8,8 +8,9 @@ export interface Skill {
   version: string
   lockVersion: number
   status: 'enabled' | 'disabled'
-  sourceType: 'builtin' | 'upload'
+  sourceType: 'upload' | 'platform'
   revisionId: string
+  platformRevisionId?: string | null
   contentHash: string
   fileCount: number
   totalBytes: number
@@ -31,7 +32,7 @@ export interface PreparedSkill {
 function parseSkill(value: unknown): Skill {
   const data = object(value)
   if (data.status !== 'enabled' && data.status !== 'disabled') throw new Error('技能状态无效')
-  if (data.source !== 'builtin' && data.source !== 'upload') throw new Error('技能来源无效')
+  if (data.source !== 'upload' && data.source !== 'platform') throw new Error('技能来源无效')
   return {
     skillId: string(data.id),
     skillSlug: string(data.slug),
@@ -42,6 +43,8 @@ function parseSkill(value: unknown): Skill {
     status: data.status,
     sourceType: data.source,
     revisionId: string(data.revision_id),
+    platformRevisionId:
+      data.platform_revision_id == null ? null : string(data.platform_revision_id),
     contentHash: string(data.content_hash),
     fileCount: number(data.file_count),
     totalBytes: number(data.total_bytes)
@@ -98,6 +101,20 @@ export const getSkill = (id: string, signal: AbortSignal) =>
   http.request(path(id), { signal, decode: parseSkill })
 export const getSkillContent = (id: string, signal: AbortSignal) =>
   http.request(`${path(id)}/content`, { signal, decode: (value) => string(object(value).content) })
+export const publishPlatformSkill = (skill: Skill, signal: AbortSignal) =>
+  http.request(`${path(skill.skillId)}/platform`, {
+    method: 'PUT',
+    body: { expected_version: skill.lockVersion },
+    signal,
+    decode: parseSkill
+  })
+export const withdrawPlatformSkill = (skill: Skill, signal: AbortSignal) =>
+  http.request(`${path(skill.skillId)}/platform`, {
+    method: 'DELETE',
+    body: { expected_revision_id: skill.platformRevisionId ?? skill.revisionId },
+    signal,
+    decode: decodeVoid
+  })
 export const prepareSkillImport = (file: File, signal: AbortSignal) =>
   http.request(`/skills/import/prepare?${new URLSearchParams({ filename: file.name })}`, {
     method: 'POST',

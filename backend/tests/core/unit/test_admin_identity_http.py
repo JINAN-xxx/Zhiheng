@@ -27,7 +27,7 @@ class SkillInitializerSpy(SkillService):
     def __init__(self) -> None:
         self.calls: list[tuple[AsyncSession, UUID]] = []
 
-    async def initialize_owner(self, session: AsyncSession, owner_id: UUID) -> None:
+    async def initialize_admin_library(self, session: AsyncSession, owner_id: UUID) -> None:
         assert session.in_transaction(), 'personal resources must share the account transaction'
         assert await session.get(IdentityUser, owner_id) is not None
         self.calls.append((session, owner_id))
@@ -41,7 +41,7 @@ class Audit:
 
     async def record(self, session: AsyncSession, **fields: Any) -> None:
         assert session.in_transaction(), 'audit must share the domain transaction'
-        if fields['action'] == 'users.create':
+        if fields['action'] == 'users.create' and self.initializer.calls:
             initialized_session, owner_id = self.initializer.calls[-1]
             assert initialized_session is session
             assert str(owner_id) == fields['resource_id']
@@ -91,7 +91,7 @@ async def test_http_writes_validate_versions_and_log_without_password(api: tuple
     assert created.status_code == 201, created.text
     user = created.json()
     assert user['version'] == 1 and 'password' not in str(user)
-    assert [owner_id for _, owner_id in audit.initializer.calls] == [UUID(user['id'])]
+    assert audit.initializer.calls == []
     assert audit.calls[0]['action'] == 'users.create'
     assert 'a-long-test-password' not in str(audit.calls)
     missing = await client.patch(f'/api/admin/users/{user["id"]}', json={'display_name': 'test'})
@@ -108,10 +108,13 @@ async def test_http_writes_validate_versions_and_log_without_password(api: tuple
 async def test_failed_audit_rolls_back_user_creation(api: tuple[Any, ...]) -> None:
     client, audit, factory, _ = api
     audit.fail = True
-    response = await client.post('/api/admin/users', json={'username': 'rollback', 'password': 'a-long-test-password'})
+    response = await client.post(
+        '/api/admin/users', json={'username': 'admin', 'is_admin': True, 'password': 'a-long-test-password'}
+    )
     assert response.status_code == 503
+    assert len(audit.initializer.calls) == 1
     async with factory() as session:
-        assert await session.scalar(select(IdentityUser.id).where(IdentityUser.username == 'rollback')) is None
+        assert await session.scalar(select(IdentityUser.id).where(IdentityUser.username == 'admin')) is None
 
 
 async def test_invalid_fields_are_rejected_without_echoing_password(api: tuple[Any, ...]) -> None:

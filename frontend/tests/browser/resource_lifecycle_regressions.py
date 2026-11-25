@@ -27,29 +27,6 @@ REFERENCES = [
 
 
 class LifecycleSkills(SkillsUIRegressions):
-    async def test_member_cannot_delete_builtin_skill(self):
-        # The builtin template copy belongs to this member; retain the historical node ID.
-        self.member = True
-        await self.test_builtin_enabled_skill_stays_protected_and_can_be_toggled()
-
-    async def test_builtin_enabled_skill_stays_protected_and_can_be_toggled(self):
-        self.skill['source'] = 'builtin'
-        deletes = []
-        self.page.on('request', lambda request: deletes.append(request.url) if request.method == 'DELETE' else None)
-        await self.page.goto(self.origin + '/skills')
-        await expect(self.page.get_by_role('heading', name='技能', exact=True)).to_be_visible()
-        detail = await self.open_skill_detail()
-        await expect(detail.get_by_role('button', name='更多技能操作', exact=True)).to_have_count(0)
-        toggle = detail.get_by_role('switch')
-        await toggle.click()
-        await expect(toggle).not_to_be_checked()
-        await toggle.click()
-        await expect(toggle).to_be_checked()
-        self.assertEqual(self.updates, [{'status': 'disabled', 'expected_version': 1}, {'status': 'enabled', 'expected_version': 2}])
-        self.assertEqual(self.skill['revision_id'], 'revision-1')
-        self.assertEqual(len(self.items), 1)
-        self.assertEqual(deletes, [])
-
     async def test_skill_dependency_lists_actionable_and_private_references(self):
         async def blocked(route):
             if route.request.method == 'DELETE':

@@ -8,7 +8,7 @@ export type AdminArea =
   | 'applications'
   | 'roles'
   | 'departments'
-  | 'configs'
+  | 'notice_settings'
   | 'notices'
   | 'logs'
   | 'sessions'
@@ -24,7 +24,7 @@ export const adminNavigation: AdminNavigation[] = [
   { path: '/admin/applications', label: '应用治理', area: 'applications' },
   { path: '/admin/roles', label: '角色权限', area: 'roles' },
   { path: '/admin/departments', label: '部门管理', area: 'departments' },
-  { path: '/admin/configs', label: '参数管理', area: 'configs' },
+  { path: '/admin/configs', label: '公告展示设置', area: 'notice_settings' },
   { path: '/admin/storage', label: '存储管理', area: 'storage' },
   { path: '/admin/notices', label: '通知公告', area: 'notices' },
   { path: '/admin/login-logs', label: '登录日志', area: 'logs' },

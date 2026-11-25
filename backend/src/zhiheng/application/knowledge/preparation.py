@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from zhiheng.application.execution.admission import AdmissionIdentity, RunAdmission
 from zhiheng.application.execution.lifecycle import RunLifecycle
 from zhiheng.infrastructure.database import Database
+from zhiheng.modules.agents.public import AssistantConversations
 from zhiheng.modules.billing.public import UsageService, lock_billing_admission
 from zhiheng.modules.chat.public import ChatService
 from zhiheng.modules.developer.public import ApplicationService, DeveloperIdentity, KeyService
@@ -119,6 +120,33 @@ class KnowledgePreparation:
             return False
         return True
 
+    async def assert_plaza_sources(
+        self, session: AsyncSession, owner: Principal, base_ids: list[UUID], *, lock: bool = False
+    ) -> None:
+        for base_id in sorted(base_ids):
+            base = await self.knowledge.require(session, owner, base_id, manage=True, lock=lock)
+            if base.owner_id != owner.id or base.document_policy != 'library':
+                raise AppError('assistant_plaza_knowledge_owner', '只能授权本人拥有的已迁移知识库', 422)
+
+    async def assistant_sources(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        conversation_id: UUID,
+        version: int,
+        base_ids: list[UUID],
+        *,
+        lock: bool = False,
+    ) -> Principal:
+        require_capability(principal, 'agents', 'use')
+        owner_id = await AssistantConversations().plaza_knowledge_owner(
+            session, principal, conversation_id, version, base_ids, lock=lock
+        )
+        owner = (await self.knowledge.identity.principal_for_user(session, owner_id)).personal()
+        require_capability(owner, 'knowledge', 'query')
+        await self.assert_plaza_sources(session, owner, base_ids, lock=lock)
+        return owner
+
     async def start(
         self,
         session: AsyncSession,
@@ -128,9 +156,13 @@ class KnowledgePreparation:
         identity: DeveloperIdentity | None = None,
     ) -> PreparationInfo:
         await lock_billing_admission(session)
+        plaza_version = body.dependencies.get('plaza_version') if body.resource_type == 'agent_chat' else None
         if identity is None:
             require_execution_capabilities(
-                principal, body.resource_type, knowledge=True, skills=bool(body.request.get('skill_slugs'))
+                principal,
+                body.resource_type,
+                knowledge=plaza_version is None,
+                skills=bool(body.request.get('skill_slugs')),
             )
         if identity:
             if body.owner_id != identity.owner_id or principal.id != identity.owner_id:
@@ -148,7 +180,10 @@ class KnowledgePreparation:
         if existing:
             return self.store.info(existing)
         owner = await self.knowledge.identity.principal_for_user(session, owner_id)
-        require_capability(owner, 'knowledge', 'query')
+        if type(plaza_version) is int and identity is None and principal.id == owner_id:
+            owner = await self.assistant_sources(session, principal, resource_id, plaza_version, base_ids)
+        else:
+            require_capability(owner, 'knowledge', 'query')
         bases = await self.store.snapshot(session, owner, base_ids)
         bindings = await self.models.bindings.resolve_many(session, sorted({base.binding.model_id for base in bases}))
         for base in bases:
@@ -321,9 +356,13 @@ class KnowledgePreparation:
 
     async def authorize(self, session: AsyncSession, state: RetrievalState, *, lock: bool = False) -> Principal:
         principal = await self.knowledge.identity.principal_for_user(session, state.owner_id)
+        plaza_version = state.dependencies.get('plaza_version') if state.resource_type == 'agent_chat' else None
         if state.key_id is None:
             require_execution_capabilities(
-                principal, state.resource_type, knowledge=True, skills=bool(state.request.get('skill_slugs'))
+                principal,
+                state.resource_type,
+                knowledge=plaza_version is None,
+                skills=bool(state.request.get('skill_slugs')),
             )
         if state.key_id is not None:
             assert state.application_id is not None
@@ -331,6 +370,15 @@ class KnowledgePreparation:
             await self._authorize_key(session, identity, state.resource_type, state.resource_id, lock=lock)
         if self.resource_guard is not None:
             await self.resource_guard(session, state)
+        if type(plaza_version) is int and state.key_id is None and state.actor_id == state.owner_id:
+            return await self.assistant_sources(
+                session,
+                principal,
+                state.resource_id,
+                plaza_version,
+                [base.base_id for base in self.store.bases(state)],
+                lock=lock,
+            )
         if state.key_id is not None and state.resource_type == 'knowledge_query':
             principal = principal.personal()
         if state.resource_type in {'agent_preview', 'agent_invocation'}:
@@ -725,10 +773,9 @@ class KnowledgePreparation:
             if child_id is None:
                 async with self.database.sessions.begin() as session:
                     await lock_billing_admission(session)
-                    await self.authorize(session, state, lock=True)
+                    owner = await self.authorize(session, state, lock=True)
                     await self.live_bindings(session, state)
                     await self.check_dependencies(session, state)
-                    owner = await self.knowledge.identity.principal_for_user(session, state.owner_id)
                     await self.store.revalidate(session, owner, bases)
                     await self.store.owned(session, state.id, token)
                     request = ModelRequest(
@@ -804,6 +851,10 @@ class KnowledgePreparation:
                 )
         run = await self.runs.projection(session, row.main_run_id) if row.main_run_id else None
         result = self.store.info(row, run)
+        if state.resource_type == 'agent_chat' and state.dependencies.get('plaza_version') is not None:
+            result.hits = []
+            result.diagnostics = {}
+            return result
         for base in self.store.bases(state):
             current = await self.knowledge.require(session, principal, base.base_id)
             if not self.knowledge.manages(principal, current):

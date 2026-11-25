@@ -26,7 +26,8 @@ class AccountService:
         is_admin: bool = False,
     ) -> Principal:
         user = await self.identity.create_user(session, username=username, password=password, is_admin=is_admin)
-        await self.skills.initialize_owner(session, user.id)
+        if user.username == 'admin' and user.is_admin:
+            await self.skills.initialize_admin_library(session, user.id)
         return user
 
     async def create(
@@ -38,6 +39,6 @@ class AccountService:
     ) -> dict[str, Any]:
         assert self.admin is not None
         result = await self.admin.create(session, principal, kind, fields)
-        if kind == 'users':
-            await self.skills.initialize_owner(session, UUID(str(result['id'])))
+        if kind == 'users' and result['username'] == 'admin' and result['is_admin'] and result['is_active']:
+            await self.skills.initialize_admin_library(session, UUID(str(result['id'])))
         return result

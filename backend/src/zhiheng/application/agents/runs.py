@@ -200,7 +200,8 @@ class AgentRunService:
         await self._agents.audit(
             session,
             run_id=run.id,
-            agent=agent,
+            agent_id=agent.id,
+            owner_id=agent.owner_id,
             config=config,
             skills=selection,
             knowledge=[hit.model_dump(mode='json') for hit in prepared.hits] if prepared else [],

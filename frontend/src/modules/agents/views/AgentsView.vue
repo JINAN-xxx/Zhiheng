@@ -1,163 +1,199 @@
 <!-- Adapted from original agent UI, MIT licensed. -->
 <template>
   <main class="app-container agent-management-page">
-    <WorkspaceToolbar
-      class="agent-toolbar"
-      title="智能助手"
-      subtitle="创建、配置并启用智能助手，支持绑定技能与知识库"
-    >
+    <WorkspaceToolbar class="agent-toolbar" title="智能助手">
       <template #actions>
-        <RefreshButton label="刷新智能助手" :loading="loading" @click="load" />
         <a-button
-          v-if="canUseCapability('agents', 'create')"
+          v-if="tab === 'mine' && canUseCapability('agents', 'create')"
           type="primary"
           aria-label="新建智能助手"
           @click="openEditor()"
           ><template #icon><PlusOutlined /></template>新建智能助手</a-button
         >
+        <RefreshButton
+          label="刷新智能助手"
+          :loading="tab === 'mine' ? loading : plazaLoading"
+          @click="refreshActive"
+        />
       </template>
     </WorkspaceToolbar>
-    <section class="agent-content" :aria-busy="loading">
-      <div class="agent-controls">
-        <div class="agent-filter-summary">
-          <div class="agent-status-filters" role="group" aria-label="按启用状态筛选智能助手">
-            <button
-              v-for="item in statusFilters"
-              :key="item.value"
-              type="button"
-              class="agent-status-filter"
-              :aria-label="item.label"
-              :aria-pressed="statusFilter === item.value"
-              @click="filterByStatus(item.value)"
-            >
-              {{ item.label }}
-              <span>{{ statusCounts[item.value] ?? '—' }}</span>
-            </button>
-          </div>
-          <span class="agent-total" aria-live="polite">共 {{ total }} 个</span>
-        </div>
-        <a-input-search
-          v-model:value="query.keyword"
-          :maxlength="100"
-          allow-clear
-          placeholder="搜索智能助手"
-          aria-label="搜索智能助手"
-          @search="search"
+    <a-alert
+      v-if="publicationError"
+      class="agent-publication-error"
+      type="error"
+      show-icon
+      closable
+      :message="publicationError"
+      @close="publicationError = ''"
+    />
+    <a-tabs
+      class="agent-tabs"
+      :active-key="tab"
+      :destroy-inactive-tab-pane="false"
+      @update:active-key="switchTab"
+    >
+      <a-tab-pane key="plaza" tab="助手广场">
+        <AssistantPlaza
+          v-if="identity"
+          :key="identity.id"
+          ref="plazaPanel"
+          class="agent-content"
+          @loading="plazaLoading = $event"
+          @unpublish="emergencyUnpublish"
         />
-      </div>
-      <WorkspaceState v-if="loading && !agents.length" kind="loading" />
-      <WorkspaceState
-        v-else-if="error && !agents.length"
-        kind="error"
-        :message="error"
-        @retry="load"
-      />
-      <WorkspaceState
-        v-else-if="!agents.length"
-        kind="empty"
-        :title="
-          statusFilter !== 'all' || query.keyword.trim() ? '没有匹配的智能助手' : '暂无智能助手'
-        "
-        :message="
-          statusFilter !== 'all' || query.keyword.trim()
-            ? '调整启用状态或搜索关键词后重试'
-            : '创建一个智能助手，配置模型、技能与知识库后即可开始使用'
-        "
-      />
-      <template v-else>
-        <a-alert v-if="error" class="agent-alert" type="warning" :message="error" show-icon />
-        <ResourceCardGrid class="agent-grid">
-          <ResourceCard
-            v-for="agent in agents"
-            :key="agent.agentId"
-            class="agent-card"
-            :title="agent.name"
-            :status="agent.status === 'enabled' ? '已启用' : '未启用'"
-            :tone="agent.status === 'enabled' ? 'positive' : 'neutral'"
-            :icon-tone="agent.status === 'enabled' ? 'primary' : 'neutral'"
-            interactive
-            :open-label="`${canEdit(agent) ? '编辑' : '查看'}${agent.name}`"
-            @open="openEditor(agent)"
-          >
-            <template #icon><AgentIdentityIcon /></template>
-            <p class="agent-card__description" :title="agent.description || '暂无描述'">
-              {{ agent.description || '暂无描述，添加一段说明，让团队了解智能助手的用途。' }}
-            </p>
-            <div class="agent-card__metadata">
-              <span><ThunderboltOutlined />{{ agent.skillSlugs.length }} 个技能</span>
-              <span><DatabaseOutlined />{{ agent.knowledgeBaseIds.length }} 个知识库</span>
+      </a-tab-pane>
+      <a-tab-pane key="mine" tab="我的助手">
+        <section class="agent-content" :aria-busy="loading">
+          <div class="agent-controls">
+            <div class="agent-filter-summary">
+              <div class="agent-status-filters" role="group" aria-label="按启用状态筛选智能助手">
+                <button
+                  v-for="item in statusFilters"
+                  :key="item.value"
+                  type="button"
+                  class="agent-status-filter"
+                  :aria-label="item.label"
+                  :aria-pressed="statusFilter === item.value"
+                  @click="filterByStatus(item.value)"
+                >
+                  {{ item.label }}
+                  <span>{{ statusCounts[item.value] ?? '—' }}</span>
+                </button>
+              </div>
+              <span class="agent-total" aria-live="polite">共 {{ total }} 个</span>
             </div>
-            <template #footer-info>
-              <span :title="agent.updatedAt ? formatUpdatedAt(agent.updatedAt, true) : ''">
-                {{ agent.updatedAt ? `更新于 ${formatUpdatedAt(agent.updatedAt)}` : '已保存' }}
-              </span>
-            </template>
-            <template #actions>
-              <a-button
-                v-if="canUseCapability('agents', 'use')"
-                size="small"
-                type="text"
-                class="resource-card-primary"
-                :loading="openingId === agent.agentId"
-                aria-label="使用"
-                @click="router.push(`/agents/${encodeURIComponent(agent.agentId)}/chat`)"
-                ><MessageOutlined />使用</a-button
-              >
-              <a-button
-                v-if="canUseCapability('agents', 'read')"
-                size="small"
-                type="text"
-                class="agent-card__edit"
-                :aria-label="canEdit(agent) ? '编辑智能助手' : '查看智能助手配置'"
-                @click="openEditor(agent)"
-                >{{ canEdit(agent) ? '编辑' : '查看' }}</a-button
-              >
-              <WorkspaceMoreMenu
-                v-if="agentActions(agent).length"
-                :items="agentActions(agent)"
-                @command="agentCommand($event, agent)"
-              />
-            </template>
-          </ResourceCard>
-          <button
-            v-if="
-              canUseCapability('agents', 'create') &&
-              displayedQuery.status === 'all' &&
-              !displayedQuery.keyword.trim()
+            <a-input-search
+              v-model:value="query.keyword"
+              :maxlength="100"
+              allow-clear
+              placeholder="搜索智能助手"
+              aria-label="搜索智能助手"
+              @search="search"
+            />
+          </div>
+          <WorkspaceState v-if="loading && !agents.length" kind="loading" />
+          <WorkspaceState
+            v-else-if="error && !agents.length"
+            kind="error"
+            :message="error"
+            @retry="load"
+          />
+          <WorkspaceState
+            v-else-if="!agents.length"
+            kind="empty"
+            :title="
+              statusFilter !== 'all' || query.keyword.trim() ? '没有匹配的智能助手' : '暂无智能助手'
             "
-            class="create-agent-card"
-            type="button"
-            @click="openEditor()"
-          >
-            <span class="create-agent-card__icon"><PlusOutlined /></span>
-            <span>创建新的智能助手</span>
-            <span class="create-agent-card__hint">配置专属助手，连接技能与知识库</span>
-          </button>
-        </ResourceCardGrid>
-        <a-pagination
-          v-if="total > query.pageSize"
-          v-model:current="query.pageNum"
-          :page-size="query.pageSize"
-          :total="total"
-          :show-size-changer="false"
-          size="small"
-          @change="load"
-        />
-      </template>
-    </section>
+            :message="
+              statusFilter !== 'all' || query.keyword.trim()
+                ? '调整启用状态或搜索关键词后重试'
+                : '创建一个智能助手，配置模型、技能与知识库后即可开始使用'
+            "
+          />
+          <template v-else>
+            <a-alert v-if="error" class="agent-alert" type="warning" :message="error" show-icon />
+            <ResourceCardGrid class="agent-grid">
+              <ResourceCard
+                v-for="agent in agents"
+                :key="agent.agentId"
+                class="agent-card"
+                :title="agent.name"
+                :status="agent.status === 'enabled' ? '已启用' : '未启用'"
+                :tone="agent.status === 'enabled' ? 'positive' : 'neutral'"
+                :icon-tone="agent.status === 'enabled' ? 'primary' : 'neutral'"
+                interactive
+                :open-label="`${canEdit(agent) ? '编辑' : '查看'}${agent.name}`"
+                @open="openEditor(agent)"
+              >
+                <template #icon><AgentIdentityIcon /></template>
+                <p class="agent-card__description" :title="agent.description || '暂无描述'">
+                  {{ agent.description || '暂无描述，添加一段说明，让团队了解智能助手的用途。' }}
+                </p>
+                <div class="agent-card__metadata">
+                  <span><ThunderboltOutlined />{{ agent.skillSlugs.length }} 个技能</span>
+                  <span><DatabaseOutlined />{{ agent.knowledgeBaseIds.length }} 个知识库</span>
+                  <span v-if="agent.plazaVersion">已上架</span>
+                </div>
+                <template #footer-info>
+                  <span :title="agent.updatedAt ? formatUpdatedAt(agent.updatedAt, true) : ''">
+                    {{ agent.updatedAt ? `更新于 ${formatUpdatedAt(agent.updatedAt)}` : '已保存' }}
+                  </span>
+                </template>
+                <template #actions>
+                  <a-button
+                    v-if="canUseCapability('agents', 'use')"
+                    size="small"
+                    type="text"
+                    class="resource-card-primary"
+                    :loading="openingId === agent.agentId"
+                    aria-label="使用"
+                    @click="router.push(`/agents/${encodeURIComponent(agent.agentId)}/chat`)"
+                    ><MessageOutlined />使用</a-button
+                  >
+                  <a-button
+                    v-if="canUseCapability('agents', 'read')"
+                    size="small"
+                    type="text"
+                    class="agent-card__edit"
+                    :aria-label="canEdit(agent) ? '编辑智能助手' : '查看智能助手配置'"
+                    @click="openEditor(agent)"
+                    >{{ canEdit(agent) ? '编辑' : '查看' }}</a-button
+                  >
+                  <WorkspaceMoreMenu
+                    v-if="agentActions(agent).length"
+                    :items="agentActions(agent)"
+                    @command="agentCommand($event, agent)"
+                  />
+                </template>
+              </ResourceCard>
+              <button
+                v-if="
+                  canUseCapability('agents', 'create') &&
+                  displayedQuery.status === 'all' &&
+                  !displayedQuery.keyword.trim()
+                "
+                class="create-agent-card"
+                type="button"
+                @click="openEditor()"
+              >
+                <span class="create-agent-card__icon"><PlusOutlined /></span>
+                <span>创建新的智能助手</span>
+                <span class="create-agent-card__hint">配置专属助手，连接技能与知识库</span>
+              </button>
+            </ResourceCardGrid>
+            <a-pagination
+              v-if="total > query.pageSize"
+              v-model:current="query.pageNum"
+              :page-size="query.pageSize"
+              :total="total"
+              :show-size-changer="false"
+              size="small"
+              @change="load"
+            />
+          </template>
+        </section>
+      </a-tab-pane>
+    </a-tabs>
     <AgentPreviewDrawer v-model="previewOpen" :agent="toolAgent" />
     <AgentApiDrawer v-model="apiOpen" :agent="toolAgent" />
+    <PlazaPublishDialog
+      :agent="publishingAgent"
+      @close="publishingAgent = null"
+      @published="publicationSaved"
+    />
   </main>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
   InputSearch as AInputSearch,
-  Pagination as APagination
+  Pagination as APagination,
+  Tabs as ATabs,
+  TabPane as ATabPane
 } from 'ant-design-vue'
 import {
   ApiOutlined,
@@ -174,12 +210,15 @@ import ResourceCardGrid from '../../../shared/components/ResourceCardGrid.vue'
 import WorkspaceMoreMenu from '../../../shared/components/WorkspaceMoreMenu.vue'
 import type { MenuAction } from '../../../shared/components/WorkspaceMoreMenu.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
-import { getAgent, listAgents } from '../api/index.ts'
-import type { Agent } from '../api/index.ts'
+import { getAgent, listAgents, unpublishAssistant } from '../api/index.ts'
+import type { Agent, PlazaAssistant } from '../api/index.ts'
 import { identity, canUseCapability, canUseModule } from '../../identity/public.ts'
 import AgentPreviewDrawer from '../components/AgentPreviewDrawer.vue'
 import AgentApiDrawer from '../components/AgentApiDrawer.vue'
 import AgentIdentityIcon from '../components/AgentIdentityIcon.vue'
+import AssistantPlaza from '../components/AssistantPlaza.vue'
+import PlazaPublishDialog from '../components/PlazaPublishDialog.vue'
+import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
 const agents = ref<Agent[]>([]),
   total = ref(0),
   loading = ref(false),
@@ -201,6 +240,21 @@ const statusCounts = reactive<Record<StatusFilter, number | null>>({
 })
 const route = useRoute(),
   router = useRouter()
+const tab = computed(() => (route.query.tab === 'mine' ? 'mine' : 'plaza'))
+const plazaLoading = ref(false)
+const plazaPanel = ref<InstanceType<typeof AssistantPlaza> | null>(null)
+let mineLoaded = false
+const { confirm } = useConfirmation()
+const plazaScope = new RequestScope()
+const publicationError = ref('')
+const publishingAgent = ref<Agent | null>(null)
+function switchTab(value: string | number): void {
+  void router.replace({ query: { ...route.query, tab: value === 'mine' ? 'mine' : undefined } })
+}
+function refreshActive(): void {
+  if (tab.value === 'plaza') plazaPanel.value?.refresh()
+  else void load()
+}
 const previewOpen = ref(false),
   apiOpen = ref(false),
   toolAgent = ref<Agent | null>(null),
@@ -209,6 +263,9 @@ const listScope = new RequestScope(),
   toolScope = new RequestScope()
 function canEdit(agent: Agent): boolean {
   return canUseCapability('agents', 'update') && identity.value?.id === agent.ownerId
+}
+function canManagePublication(agent: Agent): boolean {
+  return canUseCapability('agents', 'plaza_publish') && identity.value?.id === agent.ownerId
 }
 function formatUpdatedAt(value: string, full = false): string {
   const date = new Date(value)
@@ -219,6 +276,19 @@ function formatUpdatedAt(value: string, full = false): string {
 }
 function agentActions(agent: Agent): MenuAction[] {
   return [
+    ...(canManagePublication(agent)
+      ? [
+          ...(agent.status === 'enabled'
+            ? [
+                {
+                  command: 'plaza-publish',
+                  label: agent.plazaVersion ? '更新广场版本' : '上架广场'
+                }
+              ]
+            : []),
+          ...(agent.plazaVersion ? [{ command: 'plaza-unpublish', label: '下架广场' }] : [])
+        ]
+      : []),
     ...(canUseCapability('agents', 'debug')
       ? [{ command: 'preview', label: '调试', icon: MessageOutlined }]
       : []),
@@ -230,6 +300,46 @@ function agentActions(agent: Agent): MenuAction[] {
 function agentCommand(command: string, agent: Agent): void {
   if (command === 'preview') void openAgentTool(agent, 'preview')
   else if (command === 'api' && agent.status === 'enabled') void openAgentTool(agent, 'api')
+  else if (canManagePublication(agent)) {
+    if (command === 'plaza-publish' && agent.status === 'enabled') publishingAgent.value = agent
+    else if (command === 'plaza-unpublish') void removePublication(agent)
+  }
+}
+function emergencyUnpublish(assistant: PlazaAssistant): void {
+  if (identity.value?.is_admin) void removePublication(assistant, true)
+}
+async function publicationSaved(): Promise<void> {
+  publishingAgent.value = null
+  publicationError.value = ''
+  plazaPanel.value?.refresh()
+  mineLoaded = false
+  if (tab.value === 'mine') await load()
+}
+function removePublication(
+  agent: Pick<PlazaAssistant, 'agentId' | 'name' | 'plazaVersion'>,
+  emergency = false
+): Promise<void> | undefined {
+  const version = agent.plazaVersion
+  if (version == null) return
+  return changePublication(agent.name, emergency ? '紧急下架' : '下架广场', (signal) =>
+    unpublishAssistant(agent.agentId, version, signal)
+  )
+}
+async function changePublication(
+  name: string,
+  action: '下架广场' | '紧急下架',
+  submit: (signal: AbortSignal) => Promise<unknown>
+): Promise<void> {
+  const context = plazaScope.replace()
+  const effect = '用户将无法发送新消息，历史对话仍可查看。'
+  if (!(await confirm(`是否对「${name}」执行${action}？${effect}`)) || !context.isCurrent()) return
+  publicationError.value = ''
+  try {
+    await submit(context.signal)
+    if (context.isCurrent()) await publicationSaved()
+  } catch (reason) {
+    if (context.isCurrent() && !isAborted(reason)) publicationError.value = errorMessage(reason)
+  }
 }
 async function load(): Promise<void> {
   toolScope.replace()
@@ -254,6 +364,7 @@ async function load(): Promise<void> {
     displayedQuery.status = filter
     displayedQuery.keyword = requestedQuery.keyword
     statusCounts[filter] = page.total
+    mineLoaded = true
     if (!page.rows.length && query.pageNum > 1) {
       query.pageNum -= 1
       await load()
@@ -337,10 +448,35 @@ watch(
   },
   { immediate: true }
 )
-onMounted(load)
+watch(
+  [tab, () => identity.value?.id],
+  ([view, id], previous) => {
+    if (previous?.[1] !== id) {
+      listScope.replace()
+      toolScope.replace()
+      mineLoaded = false
+      loading.value = false
+      error.value = ''
+      agents.value = []
+      total.value = 0
+      for (const item of statusFilters) statusCounts[item.value] = null
+      previewOpen.value = false
+      apiOpen.value = false
+      toolAgent.value = null
+      plazaLoading.value = false
+      plazaScope.replace()
+      publicationError.value = ''
+      publishingAgent.value = null
+    }
+    if (!id) return
+    if (view === 'mine' && !mineLoaded && !loading.value) void load()
+  },
+  { immediate: true }
+)
 onBeforeUnmount(() => {
   listScope.dispose()
   toolScope.dispose()
+  plazaScope.dispose()
   toolAgent.value = null
 })
 </script>
@@ -358,25 +494,40 @@ onBeforeUnmount(() => {
 }
 .agent-toolbar {
   padding: 26px 28px 20px;
+  min-height: 82px;
+}
+.agent-publication-error {
+  margin: 0 28px 12px;
 }
 .agent-toolbar :deep(.workspace-toolbar__title) {
   font-size: 24px;
   font-weight: 600;
-}
-.agent-toolbar :deep(.workspace-toolbar__subtitle) {
-  margin-top: 6px;
-  font-size: 13px;
 }
 .agent-toolbar :deep(.ant-btn-primary) {
   border-radius: 10px;
   box-shadow: 0 3px 8px rgb(97 85 238 / 16%);
 }
 .agent-content {
-  flex: 1;
-  min-height: 0;
+  height: 100%;
   overflow: auto;
   scrollbar-gutter: stable;
   padding: 0 28px 28px;
+}
+.agent-tabs {
+  flex: 1;
+  min-height: 0;
+}
+.agent-tabs :deep(.ant-tabs-nav) {
+  margin-inline: 28px;
+}
+.agent-tabs :deep(.ant-tabs-content-holder),
+.agent-tabs :deep(.ant-tabs-content) {
+  min-height: 0;
+  height: 100%;
+}
+.agent-tabs :deep(.ant-tabs-tabpane) {
+  min-width: 0;
+  height: 100%;
 }
 .agent-controls {
   display: flex;
@@ -620,13 +771,21 @@ onBeforeUnmount(() => {
   }
 }
 @media (max-width: 640px) {
+  .agent-publication-error {
+    margin-inline: 16px;
+  }
   .agent-toolbar {
     padding: 20px 16px 16px;
+    min-height: 72px;
+  }
+  .agent-tabs :deep(.ant-tabs-nav) {
+    margin-inline: 16px;
   }
   .agent-content {
     padding: 0 16px 24px;
   }
   .agent-controls :deep(.ant-input-search) {
+    order: -1;
     width: 100%;
   }
   .agent-filter-summary {

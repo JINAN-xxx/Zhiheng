@@ -41,6 +41,7 @@ class Skill(Base):
     source: Mapped[str] = mapped_column(String(16), default='upload')
     version: Mapped[int] = mapped_column(Integer, default=1)
     revision_id: Mapped[UUID] = mapped_column(Uuid)
+    platform_revision_id: Mapped[UUID | None] = mapped_column(Uuid)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

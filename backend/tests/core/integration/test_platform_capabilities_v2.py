@@ -139,18 +139,21 @@ async def test_assistant_maintenance_does_not_publish_or_formally_use(
         assert (await client.post(root + '/conversations', json={'client_request_id': str(uuid4())})).status_code == 201
 
 
-async def test_skill_use_can_enable_own_preset_but_cannot_upload_or_delete(
+async def test_skill_use_can_list_published_skills_but_cannot_upload_or_manage_them(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
+    seeded = (await admin.get('/api/skills', params={'source': 'upload'})).json()['items'][0]
+    path = f'/api/skills/{seeded["id"]}'
+    assert (await admin.put(f'{path}/platform', json={'expected_version': seeded['version']})).status_code == 200
     await grant(app, *grants('platform:skills', 'use'))
     async with member(app) as client:
-        listing = await client.get('/api/skills')
+        listing = await client.get('/api/skills', params={'source': 'platform'})
         assert listing.status_code == 200, listing.text
-        preset = next(row for row in listing.json()['items'] if row['source'] == 'builtin')
+        published = next(row for row in listing.json()['items'] if row['source'] == 'platform')
         enabled = await client.patch(
-            '/api/skills/' + preset['id'] + '/status', json={'status': 'enabled', 'expected_version': preset['version']}
+            f'{path}/status', json={'status': 'disabled', 'expected_version': published['version']}
         )
-        assert enabled.status_code == 200, enabled.text
+        assert enabled.status_code == 404, enabled.text
         assert (
             await client.post(
                 '/api/skills/import/prepare?filename=SKILL.md',
@@ -158,9 +161,7 @@ async def test_skill_use_can_enable_own_preset_but_cannot_upload_or_delete(
                 headers={'content-type': 'application/octet-stream'},
             )
         ).status_code == 403
-        assert (
-            await client.delete('/api/skills/' + preset['id'], headers={'content-type': 'application/json'})
-        ).status_code == 403
+        assert (await client.delete(path, headers={'content-type': 'application/json'})).status_code == 403
 
 
 async def test_developer_read_manage_and_api_invoke_are_independent(
@@ -196,14 +197,17 @@ async def test_developer_read_manage_and_api_invoke_are_independent(
         await grant(app, *grants('platform:developer', 'invoke'))
         assert (await client.get('/v1/models', headers=headers)).status_code == 200
         for scope in ('knowledge:write', 'skills:write', 'agents:invoke'):
+            scopes = [scope, 'files:read'] if scope == 'skills:write' else [scope]
             targets = {
                 'knowledge:write': {'create_resource_kinds': ['knowledge_base']},
-                'skills:write': {'create_resource_kinds': ['skill']},
+                'skills:write': {
+                    'create_resource_kinds': ['skill'],
+                    'resource_grants': [{'kind': 'file', 'resource_id': str(uuid4()), 'actions': ['read']}],
+                },
                 'agents:invoke': {'agent_ids': [model_id]},
             }[scope]
-            assert (
-                await client.post(path + '/keys', json={'name': 'forged', 'scopes': [scope], **targets})
-            ).status_code == 403
+            rejected = await client.post(path + '/keys', json={'name': 'forged', 'scopes': scopes, **targets})
+            assert rejected.status_code == 403, (scope, rejected.text)
         await grant(app, *grants('platform:knowledge', 'query'))
         assert (
             await client.post(

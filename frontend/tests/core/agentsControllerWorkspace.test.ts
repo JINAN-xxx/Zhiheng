@@ -9,7 +9,11 @@ const originalFetch = globalThis.fetch
 const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
 let fetcher: typeof fetch = originalFetch
 globalThis.fetch = (...args) => fetcher(...args)
-const { restoreIdentity, clearIdentity } = await import('../../src/modules/identity/public.ts')
+const { restoreIdentity, clearIdentity, setIdentitySessionBoundary } = await import(
+  '../../src/modules/identity/public.ts'
+)
+const { clearAssistantPendingExcept } = await import('../../src/modules/agents/pendingStorage.ts')
+setIdentitySessionBoundary(clearAssistantPendingExcept)
 const { useAssistantWorkspace } = await import(
   '../../src/modules/agents/composables/useAssistantWorkspace.ts'
 )
@@ -139,6 +143,8 @@ class Fixture {
         )
         return response(run('c1'))
       }
+      if (url.pathname.includes('/submissions/'))
+        return response({ conversation_id: 'c1', accepted: true })
       const id = url.pathname.split('/').at(-1)
       if (id === 'c1' || id === 'c2') return this.detail(id)
       throw new Error('Unexpected request: ' + url.pathname)
@@ -197,7 +203,7 @@ class Fixture {
   }
 }
 
-void test('a lost admission reuses its persisted conversation and request identity after remount', async (t) => {
+void test('a lost admission reads its receipt without resending after remount', async (t) => {
   const fixture = new Fixture(t)
   const first = await fixture.mount(t)
   fixture.override = (url, init) => {
@@ -211,14 +217,22 @@ void test('a lost admission reuses its persisted conversation and request identi
   assert.equal(first.state.outgoing.value?.stage, 'uncertain')
   const original = first.state.pending.value
   assert.ok(original)
+  assert.equal(
+    fixture.storage.getItem('zhiheng:assistant:owner-1:agent-1:pending')?.includes('原问题'),
+    false
+  )
   first.unmount()
   delete fixture.override
   const second = await fixture.mount(t, '/agents/agent-1/chat?conversation=c1')
   assert.equal(second.state.pending.value?.requestId, original.requestId)
   await second.state.send(true)
   assert.equal(fixture.creations.length, 1)
-  assert.equal(fixture.admissions.length, 2)
-  assert.deepEqual(fixture.admissions[0], fixture.admissions[1])
+  assert.equal(fixture.admissions.length, 1)
+  assert.ok(
+    fixture.requests.some((request) =>
+      request.url.pathname.endsWith(`/submissions/${original.requestId}`)
+    )
+  )
   assert.equal(second.state.pending.value, null)
   assert.equal(fixture.storage.length, 0)
 })
@@ -245,7 +259,7 @@ void test('a conversation switch rejects an old detail even when its fetch resol
   assert.equal(mounted.state.turns.value[0]?.content, 'c2')
 })
 
-void test('identity replacement revokes an admission without clearing the original owner recovery record', async (t) => {
+void test('identity replacement clears recovery data and rejects a late admission response', async (t) => {
   const fixture = new Fixture(t)
   const mounted = await fixture.mount(t)
   const admission = deferred<Response>()
@@ -259,7 +273,7 @@ void test('identity replacement revokes an admission without clearing the origin
   const sending = mounted.state.send()
   await flush()
   assert.equal(mounted.state.sending.value, true)
-  clearIdentity()
+  assert.ok(fixture.storage.getItem('zhiheng:assistant:owner-1:agent-1:pending'))
   fixture.owner = 'owner-2'
   await restoreIdentity(true)
   await flush()
@@ -269,6 +283,6 @@ void test('identity replacement revokes an admission without clearing the origin
   assert.equal(mounted.state.pending.value, null)
   assert.equal(mounted.state.outgoing.value, null)
   assert.equal(mounted.state.sending.value, false)
-  assert.ok(fixture.storage.getItem('zhiheng:assistant:owner-1:agent-1:pending'))
+  assert.equal(fixture.storage.getItem('zhiheng:assistant:owner-1:agent-1:pending'), null)
   assert.equal(fixture.storage.getItem('zhiheng:assistant:owner-2:agent-1:pending'), null)
 })

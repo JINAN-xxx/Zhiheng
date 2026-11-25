@@ -81,3 +81,7 @@ python -m pytest tests/core/integration/test_workspace_sandbox.py -q
 覆盖真实文件制作与 PDF 预览、快照恢复、只读原件、路径与符号链接、非 root / 无能力集 / 私有网络、实际 scratch 容量、超时、取消、依赖安装和工作目录模块遮蔽。
 
 另有 `tests/core/integration/test_work_agent_execution.py` 通过公共工作空间 API、真实 ARQ、官方 LangChain/PostgreSQL checkpoint 和原生计量运行完整任务。Office 用例要求三个 `ZHIHENG_TEST_SANDBOX_*` 变量全部提供，验证 Excel/Word 制作、PDF 预览、续写与旧版本字节保持。该层模型端使用测试专用 OpenAI 兼容 HTTP 服务，不表示真实云端模型已验证。
+
+发布前从仓库根目录运行 `bash tools/verify-core.sh workspace-sandbox`。除上述三个沙盒变量，须提供独立测试实例的 `ZHIHENG_TEST_DATABASE_URL`、`ZHIHENG_TEST_REDIS_URL`、`ZHIHENG_TEST_S3_ENDPOINT`、`ZHIHENG_TEST_S3_ACCESS_KEY`、`ZHIHENG_TEST_S3_SECRET_KEY`。数据库账号需允许测试夹具创建和删除临时数据库，对象存储需允许创建和清理临时桶。模型使用本地测试端，命令拒绝 `ZHIHENG_TEST_LIVE_MODEL_CONFIG`。缺少配置、用例被跳过或未完成都会让验收失败。
+
+GitHub 的 `Workspace Sandbox Release Acceptance` 手动工作流从受保护的 `workspace-sandbox-acceptance` 环境读取这些配置。端点和凭据使用环境密钥，`ZHIHENG_TEST_SANDBOX_IMAGE` 使用环境变量，并指定待发布镜像的不可变引用。运行器须能访问独立测试服务。Gitee 等其他流水线可以执行同一命令。不要将生产环境配置为这里的测试依赖。

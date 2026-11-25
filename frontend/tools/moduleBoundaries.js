@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url'
 const sourceRoot = fileURLToPath(new URL('../src/', import.meta.url))
 const parts = (path) => relative(sourceRoot, path).split(sep)
 
+function memberName(node) {
+  if (node.computed) return node.property.type === 'Literal' ? node.property.value : null
+  return node.property.type === 'Identifier' ? node.property.name : null
+}
+
 function localTarget(filename, specifier) {
   if (specifier.startsWith('@/')) return resolve(sourceRoot, specifier.slice(2))
   if (specifier.startsWith('~/')) return resolve(sourceRoot, '..', specifier.slice(2))
@@ -42,8 +47,11 @@ export const moduleBoundaries = {
   },
   create(context) {
     const filename = context.filename
+    const source = parts(filename)
+    const ownsHttpProtocol = source[0] !== 'app' && (source[0] !== 'modules' || source[2] === 'api')
     const httpBindings = new Set()
     const httpNamespaces = new Set()
+    const requests = []
     const report = (node, reason) =>
       context.report({ node, messageId: 'boundary', data: { reason } })
     function check(node) {
@@ -85,23 +93,20 @@ export const moduleBoundaries = {
         if (node.argument?.type === 'TSLiteralType') check(node.argument.literal)
       },
       CallExpression(node) {
-        if (parts(filename)[0] !== 'app' || node.callee.type !== 'MemberExpression') return
-        const method = node.callee
-        if (
-          method.property.type !== 'Identifier' ||
-          !['request', 'open'].includes(method.property.name)
-        )
-          return
-        const owner = method.object
-        const direct = owner.type === 'Identifier' && httpBindings.has(owner.name)
-        const namespace =
-          owner.type === 'MemberExpression' &&
-          owner.object.type === 'Identifier' &&
-          httpNamespaces.has(owner.object.name) &&
-          owner.property.type === 'Identifier' &&
-          owner.property.name === 'http'
-        if (direct || namespace)
-          report(node, '业务 HTTP 协议由所属模块 api 维护，应用壳只消费公开查询')
+        if (ownsHttpProtocol || node.callee.type !== 'MemberExpression') return
+        if (['request', 'open'].includes(memberName(node.callee))) requests.push(node)
+      },
+      'Program:exit'() {
+        for (const node of requests) {
+          const owner = node.callee.object
+          const direct = owner.type === 'Identifier' && httpBindings.has(owner.name)
+          const namespace =
+            owner.type === 'MemberExpression' &&
+            owner.object.type === 'Identifier' &&
+            httpNamespaces.has(owner.object.name) &&
+            memberName(owner) === 'http'
+          if (direct || namespace) report(node, '业务 HTTP 请求只能由所属模块的 api 维护')
+        }
       }
     }
   }

@@ -49,7 +49,12 @@ async def reconstruct(  # noqa: PLR0912 - explicit retired-column conversions st
         if table.name != 'alembic_version'
     }
     if 'skills' in rows and not preserve_personal_skills:
-        rows['skills'] = [row for row in rows['skills'] if row['owner_id'] is None or row['source'] == 'upload']
+        copies = {row['personal_skill_id'] for row in rows.get('skill_legacy_bindings', [])}
+        rows['skills'] = [
+            row
+            for row in rows['skills']
+            if row['owner_id'] is None or (row['source'] == 'upload' and row['id'] not in copies)
+        ]
         retained = {row['id'] for row in rows['skills']}
         rows['skill_revisions'] = [row for row in rows['skill_revisions'] if row['skill_id'] in retained]
     await connection.execute(text('DROP SCHEMA IF EXISTS knowledge_graph_sdk CASCADE'))

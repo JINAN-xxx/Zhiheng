@@ -91,7 +91,7 @@ class OperationsService:
         fields: dict[str, object],
         resource: str,
     ) -> Entity:
-        area = 'configs' if resource == 'config' else 'notices'
+        area = 'notice_settings' if resource == 'config' else 'notices'
         principal.require_permission(f'system:{area}:create')
         if resource == 'notice' and fields.get('status') == 'published':
             principal.require_permission('system:notices:publish')
@@ -121,7 +121,7 @@ class OperationsService:
     ) -> Entity:
         changes = body.model_dump(exclude_unset=True, exclude={'expected_version'})
         previous = await self._row(session, model, identifier, *conditions, lock=True)
-        area = 'configs' if resource == 'config' else 'notices'
+        area = 'notice_settings' if resource == 'config' else 'notices'
         special = 'is_active' if resource == 'config' else 'status'
         if special in changes and changes[special] != getattr(previous, special):
             principal.require_permission(f'system:{area}:' + ('toggle' if special == 'is_active' else 'publish'))
@@ -159,7 +159,7 @@ class OperationsService:
         resource: str,
         *conditions: ColumnElement[bool],
     ) -> None:
-        principal.require_permission('system:' + ('configs' if resource == 'config' else 'notices') + ':delete')
+        principal.require_permission('system:' + ('notice_settings' if resource == 'config' else 'notices') + ':delete')
         if isinstance(expected_version, bool) or expected_version < 1:
             raise AppError('invalid_operations_version', '版本参数无效', 422)
         try:
@@ -200,7 +200,7 @@ class OperationsService:
         page: int = 1,
         page_size: int = 20,
     ) -> Page[ConfigInfo]:
-        principal.require_permission('system:configs:read')
+        principal.require_permission('system:notice_settings:read')
         pattern = self._pattern(search)
         query = select(Config).where(
             Config.key == 'console.notice_enabled',
@@ -213,20 +213,20 @@ class OperationsService:
         )
 
     async def get_config(self, session: AsyncSession, principal: Principal, config_id: UUID) -> ConfigInfo:
-        principal.require_permission('system:configs:read')
+        principal.require_permission('system:notice_settings:read')
         row = await self._row(session, Config, config_id, Config.key == 'console.notice_enabled')
         self._config(row.key, row.value)
         return ConfigInfo.model_validate(row)
 
     async def create_config(self, session: AsyncSession, principal: Principal, body: CreateConfig) -> ConfigInfo:
-        principal.require_permission('system:configs:create')
+        principal.require_permission('system:notice_settings:create')
         self._config(body.key, body.value)
         return ConfigInfo.model_validate(await self._insert(session, principal, Config, body.model_dump(), 'config'))
 
     async def update_config(
         self, session: AsyncSession, principal: Principal, config_id: UUID, body: PatchConfig
     ) -> ConfigInfo:
-        principal.require_any_permission('system:configs:update', 'system:configs:toggle')
+        principal.require_any_permission('system:notice_settings:update', 'system:notice_settings:toggle')
         row = await self._row(session, Config, config_id, Config.key == 'console.notice_enabled')
         self._config(body.key if body.key is not None else row.key, body.value if body.value is not None else row.value)
         return ConfigInfo.model_validate(await self._update(session, principal, Config, config_id, body, 'config'))
@@ -234,7 +234,7 @@ class OperationsService:
     async def delete_config(
         self, session: AsyncSession, principal: Principal, config_id: UUID, *, expected_version: int
     ) -> None:
-        principal.require_permission('system:configs:delete')
+        principal.require_permission('system:notice_settings:delete')
         await self._delete(
             session, principal, Config, config_id, expected_version, 'config', Config.key == 'console.notice_enabled'
         )

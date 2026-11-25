@@ -1,7 +1,7 @@
 <!-- Adapted from original system/file/index.vue, MIT licensed. -->
 <script setup lang="ts">
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
-import { inject, computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -23,7 +23,6 @@ import {
   RollbackOutlined,
   SwapOutlined
 } from '@ant-design/icons-vue'
-import { adminReadCacheKey } from '../../admin/public.ts'
 import WorkspacePage from '../../../shared/components/WorkspacePage.vue'
 import { hasAnyPermission, identity } from '../../identity/public.ts'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
@@ -51,20 +50,10 @@ import FileTable from '../components/FileTable.vue'
 import FileTransferDialog from '../components/FileTransferDialog.vue'
 import { canManageFile, canFileAction, canSelectFile, canLookupFileUsers } from '../access.ts'
 import { confirmFileAction } from '../authorization.ts'
+import type { StorageReadCache } from '../storageReadCache.ts'
 const canReadStorage = computed(() => hasAnyPermission(identity.value, 'ai:storage:read'))
-interface StorageReadState {
-  query: ReturnType<typeof emptyQuery>
-  dates: [string, string] | null
-  showSearch: boolean
-  files: ManagedFile[]
-  stats: FileStats | null
-  users: FileUser[]
-  usersReady: boolean
-  total: number
-  hasData: boolean
-}
-const readCache = inject(adminReadCacheKey, null)
-const savedStorage = readCache?.getResource<StorageReadState>('storage-view')
+const { readCache = null } = defineProps<{ readCache?: StorageReadCache | null }>()
+const savedStorage = readCache?.read()
 const saved = savedStorage?.value
 const queryParams = ref(saved?.query ?? emptyQuery()),
   dateRange = ref<[string, string] | null>(saved?.dates ?? null),
@@ -105,7 +94,7 @@ const mutationBusy = computed(() => busyIds.value.length > 0)
 let loadedStorage = saved?.hasData ?? false,
   usersReady = saved?.usersReady ?? false,
   loadedAt = savedStorage?.capturedAt ?? 0
-let storageStamp = readCache?.stamp()
+let writeStorage = readCache?.captureWriter()
 const storageQuery = () =>
   JSON.stringify({
     ...queryParams.value,
@@ -114,10 +103,9 @@ const storageQuery = () =>
   })
 let loadedQuery = loadedStorage ? storageQuery() : ''
 function rememberStorage(): void {
-  if (!readCache || !storageStamp) return
+  if (!writeStorage) return
   const valid = loadedStorage && loadedQuery === storageQuery()
-  readCache.setResource(
-    'storage-view',
+  writeStorage(
     {
       query: queryParams.value,
       dates: dateRange.value,
@@ -129,14 +117,13 @@ function rememberStorage(): void {
       total: valid ? total.value : 0,
       hasData: valid
     },
-    storageStamp,
     valid ? loadedAt : 0
   )
 }
 
 async function load(): Promise<void> {
   const context = scope.replace()
-  const stamp = readCache?.stamp(),
+  const write = readCache?.captureWriter(),
     queryKey = storageQuery()
   loading.value = true
   error.value = ''
@@ -157,7 +144,7 @@ async function load(): Promise<void> {
       loadedStorage = true
       loadedQuery = queryKey
       loadedAt = Date.now()
-      storageStamp = stamp
+      writeStorage = write
       rememberStorage()
       const ids = new Set(selected.value.map((file) => file.fileId))
       selected.value = page.rows.filter(
@@ -291,7 +278,7 @@ onMounted(() => {
         if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) {
           users.value = []
           usersReady = false
-          readCache?.removeResource('storage-view')
+          readCache?.clear()
         }
         error.value = errorMessage(reason)
       }

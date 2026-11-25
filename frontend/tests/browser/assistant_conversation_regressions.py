@@ -4,7 +4,7 @@ import asyncio
 import json
 import re
 import unittest
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from playwright.async_api import expect
 
@@ -27,6 +27,7 @@ class AssistantConversationRegressions(unittest.IsolatedAsyncioTestCase):
         self.hold_events = False
         self.release_stream = asyncio.Event()
         self.fail_submit = False
+        self.drop_unaccepted = False
         self.deny_detail = False
         self.deleted = []
         self.renames = []
@@ -94,6 +95,15 @@ class AssistantConversationRegressions(unittest.IsolatedAsyncioTestCase):
                     self.turns[existing['id']] = []
                 return await route.fulfill(status=201, json=existing)
             return await route.fulfill(json=self.sessions)
+        if path.startswith(root + '/submissions/'):
+            request_id = path.rsplit('/', 1)[1]
+            query = parse_qs(urlparse(request.url).query)
+            cid = query.get('conversation_id', [None])[0]
+            if cid is None:
+                create_id = query['create_id'][0]
+                cid = next((x['id'] for x in self.sessions if x.get('createId') == create_id), None)
+            accepted = any(t['request_id'] == request_id for t in self.turns.get(cid, []))
+            return await route.fulfill(json={'conversation_id': cid, 'accepted': accepted})
         if path.startswith(root + '/'):
             cid = path[len(root) + 1:].split('/')[0]
             if self.deny_detail:
@@ -115,6 +125,9 @@ class AssistantConversationRegressions(unittest.IsolatedAsyncioTestCase):
             if path.endswith('/runs'):
                 body = request.post_data_json
                 self.submissions.append(body)
+                if self.drop_unaccepted:
+                    self.drop_unaccepted = False
+                    return await route.abort('failed')
                 if self.knowledge_mode:
                     pid = 'prep-' + body['client_request_id']
                     self.preparations[pid] = {'request_id': body['client_request_id'], 'content': body['message'], 'conversation_id': cid}
@@ -164,7 +177,7 @@ class AssistantConversationRegressions(unittest.IsolatedAsyncioTestCase):
         await self.page.get_by_role('button', name='发送', exact=True).click()
 
     async def test_list_use_starts_private_persistent_conversation_with_welcome(self):
-        await self.page.goto(self.origin + '/agents')
+        await self.page.goto(self.origin + '/agents?tab=mine')
         await expect(self.page.get_by_role('heading', name='智能助手', exact=True)).to_be_visible()
         await self.page.get_by_role('button', name='使用', exact=True).click()
         await expect(self.page.locator('.assistant-chat__welcome')).to_contain_text(self.config['welcome_message'])
@@ -197,17 +210,78 @@ class AssistantConversationRegressions(unittest.IsolatedAsyncioTestCase):
         await self.page.set_viewport_size({'width': 390, 'height': 844})
         self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
 
-    async def test_unknown_submission_recovers_original_request_after_reload(self):
+    async def test_unknown_submission_reads_accepted_request_after_reload_without_resending(self):
         self.fail_submit = True
         await self.open_chat()
         await self.ask('只接纳一次')
         await expect(self.page.get_by_role('button', name='确认原提交')).to_be_enabled()
+        self.assertNotIn('只接纳一次', await self.page.evaluate('JSON.stringify(sessionStorage)'))
         await self.page.reload()
         await expect(self.page.get_by_role('button', name='确认原提交')).to_be_enabled()
         await self.page.get_by_role('button', name='确认原提交').click()
         await expect(self.page.get_by_role('button', name='确认原提交')).to_have_count(0)
         self.assertEqual(len(self.turns['session-1']), 1)
-        self.assertEqual(self.submissions[0], self.submissions[1])
+        self.assertEqual(len(self.submissions), 1)
+
+    async def test_unknown_submission_reentered_after_reload_reuses_request_id(self):
+        self.drop_unaccepted = True
+        await self.open_chat()
+        await self.ask('首次输入未送达')
+        await expect(self.page.get_by_role('button', name='确认原提交')).to_be_enabled()
+        await self.page.reload()
+        await self.page.get_by_role('button', name='确认原提交').click()
+        await expect(self.page.get_by_text('未查到原提交，请重新输入消息或添加附件。')).to_be_visible()
+        self.assertEqual(len(self.submissions), 1)
+        await self.ask('重新输入可以发送')
+        await expect(self.page.locator('.assistant-chat__reply')).to_contain_text('制度答复')
+        self.assertEqual(len(self.turns['session-1']), 1)
+        self.assertEqual(self.submissions[0]['client_request_id'], self.submissions[1]['client_request_id'])
+
+    async def test_logout_clears_pending_submissions_outside_assistant_chat(self):
+        pending = 'zhiheng:assistant:user-1:assistant-1:pending'
+        plaza_pending = 'zhiheng:assistant:user-1:assistant-1:plaza:pending'
+        self.fail_submit = True
+        await self.open_chat()
+        await self.ask('退出后清理此提交')
+        await expect(self.page.get_by_role('button', name='确认原提交')).to_be_enabled()
+        await self.page.goto(self.origin + '/agents?tab=mine')
+        await expect(self.page.get_by_role('heading', name='智能助手', exact=True)).to_be_visible()
+        self.assertIsNotNone(await self.page.evaluate('key => sessionStorage.getItem(key)', pending))
+        await self.page.evaluate(
+            '([key, plazaKey]) => sessionStorage.setItem(plazaKey, sessionStorage.getItem(key))',
+            [pending, plaza_pending],
+        )
+        await self.page.route('**/api/auth/logout', lambda route: route.fulfill(status=204))
+        await self.page.get_by_role('button', name='用户菜单', exact=True).click()
+        await self.page.get_by_role('menuitem', name='退出登录', exact=True).click()
+        await expect(self.page).to_have_url(self.origin + '/login')
+        self.assertEqual(
+            await self.page.evaluate('keys => keys.map(key => sessionStorage.getItem(key))', [pending, plaza_pending]),
+            [None, None],
+        )
+
+    async def test_cold_start_discards_other_accounts_pending_submissions(self):
+        owner_pending = 'zhiheng:assistant:user-1:assistant-1:pending'
+        former_pending = 'zhiheng:assistant:former-owner:assistant-1:plaza:pending'
+        other_key = 'zhiheng:unrelated-settings'
+        current = {'owner': 'user-1', 'agent': 'assistant-1', 'conversationId': None,
+                   'createId': 'create-fixture', 'requestId': 'request-fixture'}
+        legacy = json.dumps({**current, 'message': 'legacy plaintext fixture', 'attachments': []})
+        await self.page.add_init_script(
+            f'sessionStorage.setItem({json.dumps(owner_pending)}, {json.dumps(legacy)});'
+            f'sessionStorage.setItem({json.dumps(former_pending)}, "fixture");'
+            f'sessionStorage.setItem({json.dumps(other_key)}, "fixture");'
+        )
+        await self.page.goto(self.origin + '/agents?tab=mine')
+        await expect(self.page.get_by_role('heading', name='智能助手', exact=True)).to_be_visible()
+        self.assertEqual(
+            await self.page.evaluate(
+                '([own, former, other]) => [JSON.parse(sessionStorage.getItem(own)), '
+                'sessionStorage.getItem(former), sessionStorage.getItem(other)]',
+                [owner_pending, former_pending, other_key],
+            ),
+            [current, None, 'fixture'],
+        )
 
     async def test_refresh_observes_existing_run_without_resubmitting(self):
         self.completed = False

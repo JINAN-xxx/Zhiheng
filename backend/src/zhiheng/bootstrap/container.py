@@ -302,11 +302,11 @@ class Container:
             self.models,
             self.runs,
             self.run_admission,
-            self.usage,
             self.knowledge_preparation,
             self.identity,
             self.assistant_agent,
             self.agents,
+            self.file_commands,
         )
         self.knowledge_preparation.finalizers['agent_chat'] = self.assistant_conversations.finalize
         self.knowledge_preparation.dependency_guards['agent_chat'] = self.assistant_conversations.check_preparation

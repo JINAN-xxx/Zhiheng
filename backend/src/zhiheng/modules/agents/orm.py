@@ -17,6 +17,8 @@ class Agent(Base):
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     owner_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), index=True)
     config: Mapped[dict[str, object]] = mapped_column(JSONB)
+    plaza_config: Mapped[dict[str, object] | None] = mapped_column(JSONB(none_as_null=True))  # type: ignore[no-untyped-call]
+    plaza_version: Mapped[int | None] = mapped_column(Integer)
     version: Mapped[int] = mapped_column(Integer, default=1)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
     enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -52,6 +54,7 @@ class AssistantConversation(Base):
     owner_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), index=True)
     agent_id: Mapped[UUID] = mapped_column(ForeignKey('agents.id'), index=True)
     create_request_id: Mapped[UUID] = mapped_column(Uuid)
+    plaza: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
     config: Mapped[dict[str, object]] = mapped_column(JSONB)
     skills: Mapped[dict[str, object]] = mapped_column(JSONB)
     runtime_version: Mapped[int | None] = mapped_column(Integer, default=1)

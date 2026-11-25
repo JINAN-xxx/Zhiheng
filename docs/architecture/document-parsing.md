@@ -10,8 +10,8 @@
 
 ## 接口与状态
 
-- `GET /api/knowledge/settings/parsing`：读取配置，要求 `system:configs:read`，不返回密钥。
-- `PATCH /api/knowledge/settings/parsing`：按 `expected_version` 保存配置，要求 `system:configs:update`。角色还须有系统参数模块的启用与查看权限。
+- `GET /api/knowledge/settings/parsing` 读取配置，要求 `platform:knowledge_settings:read`。响应只提供密钥配置状态。
+- `PATCH /api/knowledge/settings/parsing` 按 `expected_version` 保存，要求 `platform:knowledge_settings:update`。角色同时需要启用知识库默认配置模块并获得查看权限。
 - `GET /api/knowledge/settings/parsing/status`：检查本地服务；普通页面的能力探测有短缓存，未启用的云端不会被探测或调用。
 
 平台持久化解析任务、源文件快照、上游 task_id、配置快照与产物引用。Worker 独立处理有限的解析 tick，知识库父任务在 `waiting_parse` 状态释放入库槽；完成后继续原有分块、向量化和发布流程。

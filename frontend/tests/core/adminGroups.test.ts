@@ -52,13 +52,13 @@ void test('retired post grants cannot add or reorder active organization pages',
 void test('configuration-only readers keep their notice setting entry without notice authority', () => {
   const groups = visibleAdminGroups({
     is_admin: false,
-    permissions: grantedPermissions('system:configs:read')
+    permissions: grantedPermissions('system:notice_settings:read')
   })
   assert.equal(groups[0]?.label, '通知公告')
   assert.equal(groups[0]?.path, '/admin/configs')
   assert.deepEqual(
     groups[0]?.entries.map((entry) => entry.area),
-    ['configs']
+    ['notice_settings']
   )
 })
 

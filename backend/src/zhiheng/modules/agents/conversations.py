@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 from sqlalchemy import or_, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from zhiheng.modules.agents.contracts import AgentConfig
+from zhiheng.modules.agents.contracts import AgentConfig, PlazaConfig
 from zhiheng.modules.agents.execution import AssistantExecutionSpec
 from zhiheng.modules.agents.orm import Agent, AgentRunAudit, AssistantConversation, AssistantTurn
 from zhiheng.modules.files.public import AttachmentSummary
@@ -17,6 +17,8 @@ from zhiheng.modules.skills.public import SkillSelection, resolve_selection
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.time import utcnow
+
+PLAZA_HISTORY_PAGE_SIZE = 12
 
 
 class AssistantConversationInfo(BaseModel):
@@ -32,6 +34,7 @@ class AssistantConversationInfo(BaseModel):
     preparation_id: UUID | None = None
     memory_available: bool = True
     summary_used: bool = False
+    plaza: bool = False
 
 
 class AssistantTurnInfo(BaseModel):
@@ -47,10 +50,19 @@ class AssistantTurnInfo(BaseModel):
 
 
 @dataclass(frozen=True)
+class CurrentAssistant:
+    config: AgentConfig
+    skills: SkillSelection
+    plaza_version: int | None = None
+    source_owner_id: UUID | None = None
+
+
+@dataclass(frozen=True)
 class AssistantConversationValue:
     info: AssistantConversationInfo
     config: AgentConfig
     skills: SkillSelection
+    plaza_version: int | None = None
 
 
 @dataclass(frozen=True)
@@ -66,21 +78,66 @@ class AssistantRunValue:
 
 class AssistantConversations:
     async def current(
-        self, session: AsyncSession, principal: Principal, agent_id: UUID, *, lock: bool = False
-    ) -> tuple[AgentConfig, SkillSelection]:
-        query = select(Agent).where(Agent.id == agent_id, Agent.owner_id == principal.id, Agent.deleted_at.is_(None))
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        agent_id: UUID,
+        *,
+        lock: bool = False,
+        plaza: bool = False,
+        load_skills: bool = True,
+    ) -> CurrentAssistant:
+        query = select(Agent).where(Agent.id == agent_id, Agent.deleted_at.is_(None))
+        if not plaza:
+            query = query.where(Agent.owner_id == principal.id)
         if lock:
             query = query.with_for_update(read=True).execution_options(populate_existing=True)
         agent = await session.scalar(query)
+        if plaza:
+            if not agent or not agent.enabled or agent.plaza_config is None or agent.plaza_version is None:
+                raise AppError('assistant_not_on_plaza', '此助手未上架或已下架', 404)
+            published = PlazaConfig.model_validate(agent.plaza_config)
+            if not published.includes(principal.department_id):
+                raise AppError('assistant_not_on_plaza', '此助手未上架或已下架', 404)
+            return CurrentAssistant(
+                published.assistant_config(),
+                await resolve_selection(session, principal.id, published.skill_slugs)
+                if load_skills
+                else SkillSelection(()),
+                agent.plaza_version,
+                agent.owner_id if published.allow_knowledge else None,
+            )
         if agent is None:
             raise AppError('agent_not_found', '智能助手不存在', 404)
         if not agent.enabled:
             raise AppError('assistant_disabled', '请先启用助手，再开始正式对话；配置页仍可调试', 409)
         config = AgentConfig.model_validate(agent.config)
-        return config, await resolve_selection(session, principal.id, config.skill_slugs)
+        return CurrentAssistant(config, await resolve_selection(session, principal.id, config.skill_slugs))
+
+    async def plaza_knowledge_owner(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        conversation_id: UUID,
+        version: int,
+        base_ids: list[UUID],
+        *,
+        lock: bool = False,
+    ) -> UUID:
+        row = await self.authorize(session, principal, conversation_id)
+        if not row.plaza:
+            raise AppError('assistant_plaza_knowledge_revoked', '广场知识授权已变化，请新建对话', 409)
+        published = await self.current(session, principal, row.agent_id, plaza=True, lock=lock)
+        if (
+            published.plaza_version != version
+            or published.source_owner_id is None
+            or set(base_ids) != set(published.config.knowledge_base_ids)
+        ):
+            raise AppError('assistant_plaza_knowledge_revoked', '广场知识授权已变化，请新建对话', 409)
+        return published.source_owner_id
 
     async def create(
-        self, session: AsyncSession, principal: Principal, agent_id: UUID, request_id: UUID
+        self, session: AsyncSession, principal: Principal, agent_id: UUID, request_id: UUID, *, plaza: bool = False
     ) -> AssistantConversationInfo:
         key = int.from_bytes(hashlib.sha256(principal.id.bytes + request_id.bytes).digest()[:8], 'big', signed=True)
         await session.execute(text('SELECT pg_advisory_xact_lock(:key)'), {'key': key})
@@ -92,27 +149,77 @@ class AssistantConversations:
         if existing is not None:
             if existing.deleted_at is not None:
                 raise AppError('assistant_conversation_not_found', '助手对话不存在', 404)
-            if existing.agent_id != agent_id:
+            if existing.agent_id != agent_id or existing.plaza != plaza:
                 raise AppError('idempotency_conflict', '此创建标识已用于其他助手', 409)
             return await self.info(session, existing)
-        config, skills = await self.current(session, principal, agent_id, lock=True)
+        current = await self.current(session, principal, agent_id, lock=True, plaza=plaza)
         row = AssistantConversation(
             owner_id=principal.id,
             agent_id=agent_id,
             create_request_id=request_id,
-            config=config.model_dump(mode='json'),
-            skills=TypeAdapter(SkillSelection).dump_python(skills, mode='json'),
+            plaza=plaza,
+            config=current.config.model_dump(mode='json'),
+            skills=TypeAdapter(SkillSelection).dump_python(current.skills, mode='json'),
         )
         session.add(row)
         await session.flush()
         return await self.info(session, row)
 
+    async def receipt_conversation(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        *,
+        agent_id: UUID,
+        create_id: UUID,
+        conversation_id: UUID | None,
+        plaza: bool,
+    ) -> UUID | None:
+        lookup = (
+            AssistantConversation.id == conversation_id
+            if conversation_id is not None
+            else AssistantConversation.create_request_id == create_id
+        )
+        found = await session.scalar(
+            select(AssistantConversation.id).where(
+                lookup,
+                AssistantConversation.owner_id == principal.id,
+                AssistantConversation.agent_id == agent_id,
+                AssistantConversation.plaza == plaza,
+                AssistantConversation.deleted_at.is_(None),
+            )
+        )
+        if found is None and conversation_id is not None:
+            raise AppError('assistant_conversation_not_found', '助手对话不存在', 404)
+        return found
+
+    async def has_turn_request(
+        self, session: AsyncSession, principal: Principal, conversation_id: UUID, request_id: UUID
+    ) -> bool:
+        return (
+            await session.scalar(
+                select(AssistantTurn.id).where(
+                    AssistantTurn.owner_id == principal.id,
+                    AssistantTurn.conversation_id == conversation_id,
+                    AssistantTurn.request_id == request_id,
+                )
+            )
+            is not None
+        )
+
     async def list_conversations(
-        self, session: AsyncSession, principal: Principal, agent_id: UUID, *, before: UUID | None = None
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        agent_id: UUID,
+        *,
+        before: UUID | None = None,
+        plaza: bool = False,
     ) -> list[AssistantConversationInfo]:
         query = select(AssistantConversation).where(
             AssistantConversation.owner_id == principal.id,
             AssistantConversation.agent_id == agent_id,
+            AssistantConversation.plaza == plaza,
             AssistantConversation.deleted_at.is_(None),
         )
         if before is not None:
@@ -121,6 +228,7 @@ class AssistantConversations:
                     AssistantConversation.id == before,
                     AssistantConversation.owner_id == principal.id,
                     AssistantConversation.agent_id == agent_id,
+                    AssistantConversation.plaza == plaza,
                 )
             )
             if cursor is None:
@@ -133,15 +241,35 @@ class AssistantConversations:
         )
         return [await self.info(session, row) for row in rows]
 
+    async def plaza_history(
+        self, session: AsyncSession, principal: Principal, *, before: UUID | None = None
+    ) -> list[AssistantConversationInfo]:
+        owned = select(AssistantConversation).where(
+            AssistantConversation.owner_id == principal.id, AssistantConversation.plaza.is_(True)
+        )
+        query = owned.where(AssistantConversation.deleted_at.is_(None))
+        if before is not None:
+            cursor = await session.scalar(owned.where(AssistantConversation.id == before))
+            if cursor is None:
+                raise AppError('assistant_conversation_not_found', '助手对话不存在', 404)
+            query = query.where(
+                tuple_(AssistantConversation.created_at, AssistantConversation.id) < (cursor.created_at, before)
+            )
+        rows = await session.scalars(
+            query.order_by(AssistantConversation.created_at.desc(), AssistantConversation.id.desc()).limit(
+                PLAZA_HISTORY_PAGE_SIZE
+            )
+        )
+        return [await self.info(session, row) for row in rows]
+
     async def require(
         self, session: AsyncSession, principal: Principal, agent_id: UUID, conversation_id: UUID, *, lock: bool = False
     ) -> AssistantConversationValue:
         row = await self.authorize(session, principal, conversation_id, lock=lock)
         if row.agent_id != agent_id:
             raise AppError('assistant_conversation_not_found', '助手对话不存在', 404)
-        info = await self.info(session, row)
-        agent = await session.get(Agent, agent_id)
-        config = AgentConfig.model_validate(agent.config if agent and agent.deleted_at is None else row.config)
+        config = await self._current_or_saved_config(session, row)
+        info = await self.info(session, row, config=config)
         # Reads do not require executable skills. Admission resolves and freezes them explicitly.
         return AssistantConversationValue(info, config, SkillSelection(()))
 
@@ -187,11 +315,15 @@ class AssistantConversations:
         row.updated_at = utcnow()
         await session.flush()
 
-    async def conversation_ids(self, session: AsyncSession, agent_id: UUID) -> list[UUID]:
+    async def conversation_ids(
+        self, session: AsyncSession, agent_id: UUID, *, personal_only: bool = False
+    ) -> list[UUID]:
         return list(
             await session.scalars(
                 select(AssistantConversation.id).where(
-                    AssistantConversation.agent_id == agent_id, AssistantConversation.deleted_at.is_(None)
+                    AssistantConversation.agent_id == agent_id,
+                    AssistantConversation.deleted_at.is_(None),
+                    *([AssistantConversation.plaza.is_(False)] if personal_only else []),
                 )
             )
         )
@@ -279,9 +411,26 @@ class AssistantConversations:
         ):
             row.checkpoint_id, row.memory_run_id = audit.checkpoint_id, run_id
 
-    async def info(self, session: AsyncSession, row: AssistantConversation) -> AssistantConversationInfo:
+    @staticmethod
+    async def _current_or_saved_config(session: AsyncSession, row: AssistantConversation) -> AgentConfig:
         agent = await session.get(Agent, row.agent_id)
-        config = AgentConfig.model_validate(agent.config if agent and agent.deleted_at is None else row.config)
+        if agent and agent.deleted_at is None:
+            config = agent.plaza_config if row.plaza else agent.config
+            if config is not None:
+                return (
+                    PlazaConfig.model_validate(config).assistant_config()
+                    if row.plaza
+                    else AgentConfig.model_validate(config)
+                )
+        return AgentConfig.model_validate(row.config)
+
+    async def info(
+        self, session: AsyncSession, row: AssistantConversation, *, config: AgentConfig | None = None
+    ) -> AssistantConversationInfo:
+        if row.plaza:
+            config = AgentConfig.model_validate(row.config)
+        elif config is None:
+            config = await self._current_or_saved_config(session, row)
         summary_used = False
         if row.memory_run_id:
             frozen = await self.snapshot(session, row.memory_run_id)
@@ -298,6 +447,7 @@ class AssistantConversations:
             updated_at=row.updated_at,
             memory_available=row.runtime_version == 1,
             summary_used=summary_used,
+            plaza=row.plaza,
         )
 
     async def deleted_checkpoints(self, session: AsyncSession) -> list[tuple[UUID, UUID]]:

@@ -155,6 +155,22 @@ async def test_unfinished_save_trial_leaves_catalog_unchanged(
     assert (await admin.get('/api/models?include_disabled=true')).json() == []
 
 
+async def test_save_trial_total_timeout_leaves_catalog_unchanged(
+    admin: httpx.AsyncClient, provider: ProviderServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = await configuration(admin, provider)
+    provider.catalog_models = []
+    monkeypatch.setattr('zhiheng.application.models.configuration.PROBE_TIMEOUT_SECONDS', 0.75)
+    try:
+        response = await admin.post('/api/models', json={**body, 'upstream_model': 'silent'})
+    finally:
+        provider.release.set()
+    assert response.status_code == 504, response.text
+    assert response.json()['error']['code'] == 'model_validation_timeout'
+    assert len(provider.requests) == 1
+    assert (await admin.get('/api/models?include_disabled=true')).json() == []
+
+
 async def test_rotation_during_provider_check_does_not_hold_sql_locks_or_save_stale_credentials(
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer
 ) -> None:

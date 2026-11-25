@@ -106,3 +106,34 @@ void test('aliased HTTP imports do not let the application shell own protocols',
     }
   }
 })
+
+void test('feature HTTP requests belong in api while UI and state can use shared HTTP utilities', () => {
+  for (const [file, source] of [
+    [
+      'src/modules/knowledge/components/probe.ts',
+      "import { http } from '@/shared/http.ts'; http.request('/knowledge/settings/parsing')"
+    ],
+    [
+      'src/modules/knowledge/composables/probe.ts',
+      "transport['http']['open']('/knowledge/settings/parsing/status'); import * as transport from '@/shared/http.ts'"
+    ]
+  ] as const) {
+    const messages = lint(file, source)
+    assert.equal(messages.length, 1)
+    assert.equal(messages[0]?.ruleId, 'architecture/module-boundaries')
+  }
+  assert.deepEqual(
+    lint(
+      'src/modules/knowledge/api/probe.ts',
+      "import { http } from '@/shared/http.ts'; http.request('/knowledge/settings/parsing')"
+    ),
+    []
+  )
+  assert.deepEqual(
+    lint(
+      'src/modules/identity/public.ts',
+      "import { http } from '@/shared/http.ts'; http.invalidate()"
+    ),
+    []
+  )
+})

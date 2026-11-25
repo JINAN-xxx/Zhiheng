@@ -14,6 +14,7 @@ const canonicalActions: Record<string, readonly string[]> = {
     'rebuild',
     'share'
   ],
+  'platform:knowledge_settings': ['read', 'update'],
   'platform:skills': ['read', 'use', 'create', 'update', 'delete', 'toggle'],
   'platform:developer': [
     'read',
@@ -32,7 +33,7 @@ const canonicalActions: Record<string, readonly string[]> = {
   'ai:credentials': ['read', 'create', 'update', 'delete', 'toggle'],
   'ai:rates': ['read', 'create'],
   'ai:credits': ['read', 'adjust', 'configure', 'reconcile'],
-  'ai:storage': ['read', 'configure', 'maintain', 'acl', 'transfer', 'delete', 'parse'],
+  'ai:storage': ['read', 'configure', 'maintain', 'acl', 'transfer', 'delete'],
   'system:users': [
     'read',
     'create',
@@ -44,7 +45,7 @@ const canonicalActions: Record<string, readonly string[]> = {
   ],
   'system:roles': ['read', 'create', 'update', 'delete', 'toggle', 'grant'],
   'system:departments': ['read', 'create', 'update', 'delete', 'toggle'],
-  'system:configs': ['read', 'create', 'update', 'delete', 'toggle'],
+  'system:notice_settings': ['read', 'create', 'update', 'delete', 'toggle'],
   'system:notices': ['read', 'create', 'update', 'delete', 'publish'],
   'system:logs': ['read'],
   'system:sessions': ['read', 'revoke'],
