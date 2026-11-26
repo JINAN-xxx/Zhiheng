@@ -10,6 +10,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from sqlalchemy import event, func, select, text, update
 
+from tests.core.permission_support import account, grant_member, grants
 from zhiheng.modules.chat.orm import ChatMessage
 from zhiheng.runtime.orm import Run
 from zhiheng.shared.time import utcnow
@@ -17,8 +18,12 @@ from zhiheng.shared.time import utcnow
 
 @pytest_asyncio.fixture
 async def saved_chat(admin: httpx.AsyncClient, app: FastAPI) -> dict[str, str]:
-    conversation = (await admin.post('/api/chat/conversations', json={'title': '分享测试'})).json()
-    owner_id = UUID((await admin.get('/api/auth/me')).json()['id'])
+    return await save_chat(admin, app)
+
+
+async def save_chat(client: httpx.AsyncClient, app: FastAPI) -> dict[str, str]:
+    conversation = (await client.post('/api/chat/conversations', json={'title': '分享测试'})).json()
+    owner_id = UUID((await client.get('/api/auth/me')).json()['id'])
     run_id, question_id, answer_id = uuid4(), uuid4(), uuid4()
     async with app.state.container.database.sessions.begin() as session:
         session.add(
@@ -128,11 +133,33 @@ async def test_feedback_parallel_updates_have_one_row_and_no_duplicates(
         assert await session.scalar(select(func.count()).select_from(MessageFeedback)) == 1
 
 
+async def test_chat_read_and_use_do_not_grant_feedback_write(admin: httpx.AsyncClient, app: FastAPI) -> None:
+    permissions = grants('platform:chat', 'use')
+    async with account(admin, app, *permissions) as (client, role, _):
+        saved = await save_chat(client, app)
+        path = f'/api/chat/messages/{saved["message_id"]}/feedback'
+        listing = f'/api/chat/conversations/{saved["conversation_id"]}/feedback'
+        assert (await client.get(listing)).json() == []
+        assert (await client.put(path, json={'value': 'up'})).status_code == 403
+        update_role = await admin.patch(
+            f'/api/admin/roles/{role["id"]}',
+            json={
+                'expected_version': role['version'],
+                'permissions': sorted(permissions | {'platform:chat:feedback'}),
+            },
+        )
+        assert update_role.status_code == 200, update_role.text
+        response = await client.put(path, json={'value': 'up'})
+        assert response.status_code == 200, response.text
+        assert (await client.get(listing)).json() == [response.json()]
+
+
 async def test_other_member_and_other_admin_cannot_operate_on_owned_messages(
     admin: httpx.AsyncClient, saved_chat: dict[str, str], app: FastAPI
 ) -> None:
     from zhiheng.shared.principal import Principal
 
+    await grant_member(admin, grants('platform:chat', 'feedback', 'share'))
     container = app.state.container
     async with container.database.sessions.begin() as session:
         await container.identity.create_user(

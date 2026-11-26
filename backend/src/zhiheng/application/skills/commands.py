@@ -174,7 +174,7 @@ class SkillCommands:
     ) -> SkillInfo:
         skill = await self.skills.get(session, principal.id, skill_id)
         require_capability(principal, 'skills', 'use' if skill.source == 'builtin' else 'toggle')
-        return await self.skills.set_status(
+        return await self.management.set_status(
             session, principal, skill_id, status=status, expected_version=expected_version
         )
 

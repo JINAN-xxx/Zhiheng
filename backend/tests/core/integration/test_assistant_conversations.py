@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 import httpx
 from fastapi import FastAPI
 
+from tests.core.permission_support import account, grants
 from tests.core.provider import ProviderServer
 from zhiheng.worker.execution import execute_run
 
@@ -96,7 +97,6 @@ async def test_published_conversation_history_is_private_and_new_turns_follow_la
     other = await assistant(admin, model_id, name='另一个助手')
     assert (await admin.get(f'/api/agents/{other["id"]}/conversations/{first["id"]}')).status_code == 404
     from tests.core.integration.test_platform_module_permissions import grant
-    from tests.core.permission_support import grants
 
     await grant(app, *grants('platform:agents', 'use'))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
@@ -227,6 +227,42 @@ async def test_accepted_run_retains_its_publication_while_later_turns_use_the_ne
     assert all('published_version' not in row for row in detail['turns'])
 
 
+async def test_session_operations_are_separate_from_assistant_configuration(
+    admin: httpx.AsyncClient, app: FastAPI, model_id: str
+) -> None:
+    permissions = grants('platform:agents', 'use', 'create', 'update', 'delete', 'publish')
+    async with account(admin, app, *permissions) as (client, role, _):
+        agent = await assistant(client, model_id)
+        original = await conversation(client, agent['id'])
+        endpoint = f'/api/agents/{agent["id"]}/conversations/{original["id"]}'
+        patch = {'title': '更名', 'expected_version': original['version']}
+        assert (await client.get(endpoint)).status_code == 200
+        assert (await client.patch(endpoint, json=patch)).status_code == 403
+        assert (await client.request('DELETE', endpoint, json={'expected_version': 1})).status_code == 403
+        result = await admin.patch(
+            f'/api/admin/roles/{role["id"]}',
+            json={
+                'expected_version': role['version'],
+                'permissions': sorted(permissions | {'platform:agents:conversation_update'}),
+            },
+        )
+        assert result.status_code == 200, result.text
+        renamed = await client.patch(endpoint, json=patch)
+        assert renamed.status_code == 200, renamed.text
+        assert renamed.json()['title'] == patch['title']
+        assert (await client.request('DELETE', endpoint, json={'expected_version': 2})).status_code == 403
+        result = await admin.patch(
+            f'/api/admin/roles/{role["id"]}',
+            json={
+                'expected_version': result.json()['version'],
+                'permissions': sorted(permissions | {'platform:agents:conversation_delete'}),
+            },
+        )
+        assert result.status_code == 200, result.text
+        assert (await client.patch(endpoint, json={**patch, 'expected_version': 2})).status_code == 403
+        assert (await client.request('DELETE', endpoint, json={'expected_version': 2})).status_code == 204
+
+
 async def test_session_rename_delete_versions_privacy_and_original_request_tombstone(
     admin: httpx.AsyncClient,
     app: FastAPI,
@@ -248,9 +284,8 @@ async def test_session_rename_delete_versions_privacy_and_original_request_tombs
     wrong = f'/api/agents/{other["id"]}/conversations/{original["id"]}'
     assert (await admin.patch(wrong, json={'title': 'steal', 'expected_version': 1})).status_code == 404
     from tests.core.integration.test_platform_module_permissions import grant
-    from tests.core.permission_support import grants
 
-    await grant(app, *grants('platform:agents', 'use'))
+    await grant(app, *grants('platform:agents', 'use', 'conversation_update', 'conversation_delete'))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
         await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
         assert (await member.patch(endpoint, json={'title': 'steal', 'expected_version': 1})).status_code == 404

@@ -312,6 +312,7 @@ class WorkAgentExecutor:
                     web_search_enabled=claim.payload.get('web_search_enabled') is True
                     and self.context.web_search is not None
                     and self.context.web_search.available,
+                    **({'mcp_enabled': True} if tools.mcp_selection is not None else {}),
                     invoke_model=invoke,
                     invoke_tool=tools.invoke,
                     write_progress=progress_writer,

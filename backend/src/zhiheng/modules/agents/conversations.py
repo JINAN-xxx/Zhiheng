@@ -53,6 +53,7 @@ class AssistantTurnInfo(BaseModel):
 class CurrentAssistant:
     config: AgentConfig
     skills: SkillSelection
+    skill_owner_id: UUID
     plaza_version: int | None = None
     source_owner_id: UUID | None = None
 
@@ -99,11 +100,22 @@ class AssistantConversations:
             published = PlazaConfig.model_validate(agent.plaza_config)
             if not published.includes(principal.department_id):
                 raise AppError('assistant_not_on_plaza', '此助手未上架或已下架', 404)
+            try:
+                skills = (
+                    await resolve_selection(session, agent.owner_id, published.skill_slugs)
+                    if load_skills
+                    else SkillSelection(())
+                )
+            except AppError as error:
+                if error.code == 'skill_unavailable':
+                    raise AppError(
+                        'skill_unavailable', '该广场助手绑定的技能已停用或不可用，请联系发布者处理', 422
+                    ) from error
+                raise
             return CurrentAssistant(
                 published.assistant_config(),
-                await resolve_selection(session, principal.id, published.skill_slugs)
-                if load_skills
-                else SkillSelection(()),
+                skills,
+                agent.owner_id,
                 agent.plaza_version,
                 agent.owner_id if published.allow_knowledge else None,
             )
@@ -112,7 +124,9 @@ class AssistantConversations:
         if not agent.enabled:
             raise AppError('assistant_disabled', '请先启用助手，再开始正式对话；配置页仍可调试', 409)
         config = AgentConfig.model_validate(agent.config)
-        return CurrentAssistant(config, await resolve_selection(session, principal.id, config.skill_slugs))
+        return CurrentAssistant(
+            config, await resolve_selection(session, principal.id, config.skill_slugs), agent.owner_id
+        )
 
     async def plaza_knowledge_owner(
         self,
@@ -127,7 +141,7 @@ class AssistantConversations:
         row = await self.authorize(session, principal, conversation_id)
         if not row.plaza:
             raise AppError('assistant_plaza_knowledge_revoked', '广场知识授权已变化，请新建对话', 409)
-        published = await self.current(session, principal, row.agent_id, plaza=True, lock=lock)
+        published = await self.current(session, principal, row.agent_id, plaza=True, lock=lock, load_skills=False)
         if (
             published.plaza_version != version
             or published.source_owner_id is None
@@ -152,7 +166,7 @@ class AssistantConversations:
             if existing.agent_id != agent_id or existing.plaza != plaza:
                 raise AppError('idempotency_conflict', '此创建标识已用于其他助手', 409)
             return await self.info(session, existing)
-        current = await self.current(session, principal, agent_id, lock=True, plaza=plaza)
+        current = await self.current(session, principal, agent_id, lock=True, plaza=plaza, load_skills=not plaza)
         row = AssistantConversation(
             owner_id=principal.id,
             agent_id=agent_id,

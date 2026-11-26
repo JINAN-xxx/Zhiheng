@@ -39,6 +39,8 @@ class CompactSkills(DeveloperBoundary):
             await route.fulfill(json=skill)
         elif re.fullmatch(r'/api/skills/skill-\d+/content', path):
             await route.fulfill(json={'content': self.content})
+        elif re.fullmatch(r'/api/skills/skill-\d+/references', path):
+            await route.fulfill(json={'references': []})
         elif re.fullmatch(r'/api/skills/skill-\d+', path):
             skill = next(s for s in self.items if s['id'] == path.split('/')[3])
             if method == 'DELETE':

@@ -12,8 +12,18 @@ from zhiheng.modules.identity.admin_orm import IdentityRole, IdentityUserRole
 
 # Ownership audits grant functional rights explicitly so their denials reach the ACL.
 PERSONAL_FUNCTIONS = (
-    grants('platform:chat', 'use', 'update', 'delete', 'share')
-    | grants('platform:agents', 'use', 'create', 'update', 'delete', 'debug', 'publish')
+    grants('platform:chat', 'use', 'update', 'delete', 'share', 'feedback')
+    | grants(
+        'platform:agents',
+        'use',
+        'create',
+        'update',
+        'delete',
+        'debug',
+        'publish',
+        'conversation_update',
+        'conversation_delete',
+    )
     | grants('platform:work', 'use', 'create', 'update', 'delete')
     | grants('platform:knowledge', 'query', 'create', 'update', 'delete', 'import', 'rebuild', 'share')
     | grants('platform:skills', 'use', 'create', 'update', 'delete', 'toggle')

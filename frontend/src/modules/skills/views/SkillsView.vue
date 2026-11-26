@@ -132,7 +132,6 @@
       :saving="saving"
       :deleting="deleting"
       :action-error="actionError"
-      :action-details="actionDetails"
       :can-manage="canManage"
       :can-toggle="!!detail && canToggleSkill(detail)"
       :can-update="canUseCapability('skills', 'update')"
@@ -146,6 +145,22 @@
       @delete="removeSelected"
       @publication="detail && changePublication(detail, $event)"
     />
+    <a-modal
+      :open="actionBlock !== null"
+      :title="actionBlock?.title ?? ''"
+      width="min(520px, calc(100vw - 32px))"
+      :z-index="1100"
+      centered
+      @cancel="actionBlock = null"
+    >
+      <div class="skill-action-block">
+        <p>{{ actionBlock?.message }}</p>
+        <ResourceReferences :details="actionBlock?.details" />
+      </div>
+      <template #footer>
+        <a-button type="primary" @click="actionBlock = null">关闭</a-button>
+      </template>
+    </a-modal>
   </main>
 </template>
 
@@ -156,6 +171,7 @@ import {
   Alert as AAlert,
   Button as AButton,
   Input as AInput,
+  Modal as AModal,
   Pagination as APagination,
   Select as ASelect,
   Switch as ASwitch,
@@ -164,6 +180,7 @@ import {
 } from 'ant-design-vue'
 import { SearchOutlined, UploadOutlined } from '@ant-design/icons-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
+import ResourceReferences from '../../../shared/components/ResourceReferences.vue'
 import WorkspaceMoreMenu from '../../../shared/components/WorkspaceMoreMenu.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import SkillIdentityIcon from '../components/SkillIdentityIcon.vue'
@@ -196,7 +213,7 @@ const {
   saving,
   deleting,
   actionError,
-  actionDetails,
+  actionBlock,
   uploadOpen,
   uploadTarget,
   load,
@@ -218,6 +235,16 @@ const {
 </script>
 
 <style scoped lang="scss">
+.skill-action-block {
+  max-height: 50vh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.skill-action-block > p {
+  margin: 0;
+}
+
 .skill-management-page {
   display: flex;
   min-width: 0;

@@ -49,6 +49,8 @@ import { errorMessage } from '../../../shared/http.ts'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
 import { SkillPicker } from '../../skills/public.ts'
 import WorkSelectedSkills from './WorkSelectedSkills.vue'
+import WorkMcpPicker from './WorkMcpPicker.vue'
+import type { ToolSelection } from '../../mcp/public.ts'
 
 const props = defineProps<{
   task: WorkTask
@@ -80,6 +82,7 @@ const emit = defineEmits<{
 const message = ref(props.initialMessage ?? ''),
   fileInput = ref<HTMLInputElement | null>(null)
 const composerSurface = ref<InstanceType<typeof ConversationComposer> | null>(null)
+const mcpTool = ref<ToolSelection>()
 const editorOpen = ref(false),
   skillsOpen = ref(false),
   modelOpen = ref(false),
@@ -96,6 +99,7 @@ watch(
   () => {
     previewArtifact.value = null
     filesOpen.value = false
+    mcpTool.value = undefined
   },
   { flush: 'sync' }
 )
@@ -195,9 +199,14 @@ function send(): void {
     return
   }
   const content = message.value.trim()
+  const selected = mcpTool.value
   message.value = ''
-  emit('send', { message: content }, () => {
-    if (!message.value) message.value = content
+  mcpTool.value = undefined
+  emit('send', { message: content, ...(selected ? { mcpTool: selected } : {}) }, () => {
+    if (!message.value) {
+      message.value = content
+      mcpTool.value = selected
+    }
   })
 }
 function keydown(event: KeyboardEvent): void {
@@ -455,6 +464,12 @@ async function removeInput(file: WorkInput): Promise<void> {
             />
           </template>
           <template #tools>
+            <WorkMcpPicker
+              v-if="canRun && canUseCapability('mcp', 'use')"
+              :selection="mcpTool"
+              :disabled="locked"
+              @change="mcpTool = $event"
+            />
             <AttachmentButton
               aria-label="添加附件"
               :disabled="!canAddFiles"

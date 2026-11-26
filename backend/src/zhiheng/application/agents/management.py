@@ -18,7 +18,7 @@ from zhiheng.modules.developer.public import ApplicationService
 from zhiheng.modules.files.public import FileService
 from zhiheng.modules.knowledge.public import KnowledgeService, RerankPolicy
 from zhiheng.modules.models.public import ModelBinding, ModelService
-from zhiheng.modules.skills.public import SkillService, platform_skill_id, resolve_selection
+from zhiheng.modules.skills.public import SkillService, resolve_selection
 from zhiheng.modules.work.public import WorkService
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
@@ -176,8 +176,6 @@ class AgentManagementService:
         if not agent.enabled:
             raise AppError('assistant_disabled', '请先启用助手，再上架广场', 409)
         config = agent.configuration
-        if any(platform_skill_id(slug) is None for slug in config.skill_slugs):
-            raise AppError('assistant_plaza_dependencies', '广场助手只能绑定平台技能', 422)
         if config.skill_slugs:
             require_capability(principal, 'skills', 'use')
             await resolve_selection(session, principal.id, config.skill_slugs)

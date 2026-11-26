@@ -10,6 +10,7 @@ from zhiheng.modules.developer.schema import schema_tables as developer_tables
 from zhiheng.modules.files.schema import schema_tables as file_tables
 from zhiheng.modules.identity.schema import schema_tables as identity_tables
 from zhiheng.modules.knowledge.schema import schema_tables as knowledge_tables
+from zhiheng.modules.mcp.schema import schema_tables as mcp_tables
 from zhiheng.modules.models.schema import schema_tables as model_tables
 from zhiheng.modules.operations.schema import schema_tables as operation_tables
 from zhiheng.modules.skills.schema import schema_tables as skill_tables
@@ -31,6 +32,7 @@ def schema_metadata() -> MetaData:
         *file_tables(),
         *knowledge_tables(),
         *operation_tables(),
+        *mcp_tables(),
         Base.metadata.tables[Run.__tablename__],
         Base.metadata.tables[Outbox.__tablename__],
     )

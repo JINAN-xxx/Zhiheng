@@ -33,6 +33,13 @@
     <WorkspaceState v-if="loading" kind="loading" />
     <WorkspaceState v-else-if="error" kind="error" :message="error" @retry="emit('retry')" />
     <template v-else-if="skill">
+      <AAlert
+        v-if="actionError"
+        class="detail-action-error"
+        :message="actionError"
+        type="error"
+        show-icon
+      />
       <section v-if="skill.sourceType !== 'platform'" class="skill-markdown" aria-label="技能内容">
         <MarkdownRender
           :content="markdownContent || '暂无内容'"
@@ -45,14 +52,6 @@
           @copy="copyMarkdownCode"
         />
       </section>
-      <AAlert
-        v-if="actionError"
-        class="detail-action-error"
-        :message="actionError"
-        type="error"
-        show-icon
-      />
-      <ResourceReferences :details="actionDetails" />
     </template>
 
     <template #footer>
@@ -127,7 +126,6 @@ import {
 import { DeleteOutlined, EllipsisOutlined, UploadOutlined } from '@ant-design/icons-vue'
 import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
-import ResourceReferences from '../../../shared/components/ResourceReferences.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import type { MenuAction } from '../../../shared/components/WorkspaceMoreMenu.vue'
 import type { Skill } from '../api/index.ts'
@@ -142,7 +140,6 @@ const props = defineProps<{
   saving: boolean
   deleting: boolean
   actionError: string
-  actionDetails?: unknown
   canManage: boolean
   canUpdate?: boolean | undefined
   canDelete?: boolean | undefined

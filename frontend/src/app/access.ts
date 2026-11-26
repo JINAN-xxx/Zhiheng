@@ -32,5 +32,7 @@ export function accessRedirect(
   if (to.meta.admin && !user.is_admin) return firstModulePath(user)
   if (to.meta.console && !canAccessAdmin(user)) return firstModulePath(user)
   if (to.meta.permission && !hasPermission(user, to.meta.permission)) return '/admin'
+  if (to.meta.anyPermissions && !to.meta.anyPermissions.some((code) => hasPermission(user, code)))
+    return { path: '/access', query: { denied: module ?? to.path } }
   return null
 }

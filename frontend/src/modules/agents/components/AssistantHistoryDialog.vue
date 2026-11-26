@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -15,6 +15,7 @@ import HistoryRecord from '../../../shared/components/HistoryRecord.vue'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { canUseCapability } from '../../identity/public.ts'
 import { deleteAssistantConversation, renameAssistantConversation } from '../api/conversations.ts'
 import type { AssistantConversation } from '../api/conversations.ts'
 
@@ -44,10 +45,22 @@ const mutation = ref(''),
 const renameTarget = ref<AssistantConversation | null>(null),
   title = ref(''),
   renameError = ref('')
-const items = [
-  { command: 'rename', label: '重命名', icon: EditOutlined },
-  { command: 'delete', label: '删除', icon: DeleteOutlined, danger: true, divided: true }
-]
+const canRename = computed(() => canUseCapability('agents', 'conversation_update'))
+const canDelete = computed(() => canUseCapability('agents', 'conversation_delete'))
+const items = computed(() => [
+  ...(canRename.value ? [{ command: 'rename', label: '重命名', icon: EditOutlined }] : []),
+  ...(canDelete.value
+    ? [
+        {
+          command: 'delete',
+          label: '删除',
+          icon: DeleteOutlined,
+          danger: true,
+          divided: canRename.value
+        }
+      ]
+    : [])
+])
 function locked(item: AssistantConversation): boolean {
   return (
     item.id === props.lockedId ||
@@ -61,6 +74,7 @@ async function command(value: string, item: AssistantConversation): Promise<void
   failure.value = ''
   const target = { ...item }
   if (value === 'rename') {
+    if (!canRename.value) return
     renameTarget.value = target
     title.value = target.title
     renameError.value = ''
@@ -68,10 +82,11 @@ async function command(value: string, item: AssistantConversation): Promise<void
   }
   if (
     value !== 'delete' ||
+    !canDelete.value ||
     !(await confirm(`是否删除“${target.title}”？删除后将无法在历史记录中找回。`))
   )
     return
-  if (locked(target)) return
+  if (locked(target) || !canDelete.value) return
   const ticket = scope.replace()
   mutation.value = target.id
   try {
@@ -89,7 +104,7 @@ async function command(value: string, item: AssistantConversation): Promise<void
 async function rename(): Promise<void> {
   const target = renameTarget.value,
     value = title.value.trim()
-  if (!target || mutation.value) return
+  if (!canRename.value || !target || mutation.value) return
   if (!value || [...value].length > 100) {
     renameError.value = '标题需为1–100字'
     return
@@ -144,13 +159,13 @@ onBeforeUnmount(() => scope.dispose())
         >
           <template #actions>
             <WorkspaceMoreMenu
-              v-if="!locked(item)"
+              v-if="items.length && !locked(item)"
               compact
               :items="items"
               @command="(value) => command(value, item)"
             />
             <ASpin v-else-if="mutation === item.id" size="small" />
-            <small v-else>处理中</small>
+            <small v-else-if="locked(item)">处理中</small>
           </template>
         </HistoryRecord>
         <AEmpty
@@ -170,7 +185,7 @@ onBeforeUnmount(() => scope.dispose())
     </section>
   </HistoryDialog>
   <AModal
-    :open="renameTarget !== null"
+    :open="canRename && renameTarget !== null"
     title="重命名会话"
     :closable="!mutation"
     :mask-closable="false"

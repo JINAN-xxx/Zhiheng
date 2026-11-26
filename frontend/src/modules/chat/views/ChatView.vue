@@ -315,7 +315,11 @@ onBeforeUnmount(() => {
               :content="messageText(row.message)"
               :role="row.message.role"
               :regenerate="canUseChat && row.message.role === 'assistant'"
-              :feedback-enabled="row.message.role === 'assistant' && !row.message.incomplete_reason"
+              :feedback-enabled="
+                canUseCapability('chat', 'feedback') &&
+                row.message.role === 'assistant' &&
+                !row.message.incomplete_reason
+              "
               :share="
                 canUseCapability('chat', 'share') &&
                 row.message.role === 'assistant' &&

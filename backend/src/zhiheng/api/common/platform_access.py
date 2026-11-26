@@ -7,6 +7,12 @@ from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.principal import Principal
 
 ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
+    'mcp': {
+        'catalog': 'mcp:read',
+        **dict.fromkeys(('create', 'update', 'sync'), 'mcp:configure'),
+        **dict.fromkeys(('roles', 'grant'), 'mcp:grant'),
+        'calls': 'mcp:audit',
+    },
     'chat': {
         **dict.fromkeys(('conversations', 'messages', 'context_info', 'conversation_detail'), 'chat:read'),
         **dict.fromkeys(('create_conversation', 'create_run', 'regenerate_message'), 'chat:use'),
@@ -19,9 +25,9 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
             ('list_conversations', 'conversation_detail', 'download_attachment', 'submission_receipt'), 'agents:read'
         ),
         'upload_attachment': 'agents:use',
-        **dict.fromkeys(
-            ('create_conversation', 'send_message', 'rename_conversation', 'delete_conversation'), 'agents:use'
-        ),
+        **dict.fromkeys(('create_conversation', 'send_message'), 'agents:use'),
+        'rename_conversation': 'agents:conversation_update',
+        'delete_conversation': 'agents:conversation_delete',
     },
     'agents': {
         'list_agents': 'agents:read',
@@ -67,6 +73,7 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
         'skills': 'skills:read',
         'get': 'skills:read',
         'content': 'skills:read',
+        'list_references': 'skills:read',
         'remove': 'skills:delete',
         'publish_platform': 'skills:platform_publish',
         'withdraw_platform': 'skills:platform_publish',
@@ -144,7 +151,7 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
         'query': 'knowledge:query',
     },
     'message_actions': {
-        'set_feedback': 'chat:read',
+        'set_feedback': 'chat:feedback',
         'conversation_feedback': 'chat:read',
         **dict.fromkeys(('share_preview', 'create_share', 'list_shares', 'revoke_share'), 'chat:share'),
     },
@@ -243,6 +250,11 @@ def authorize_console_route(request: Request, principal: Principal) -> None:  # 
     if module == 'agents' and name == 'available':
         principal.require_any_permission('platform:agents:read', 'platform:work:read')
         return
+    if module == 'mcp' and name == 'servers':
+        principal.require_any_permission('platform:mcp:configure', 'platform:mcp:grant', 'platform:mcp:audit')
+        return
+    if module == 'assistant_conversations' and name in {'rename_conversation', 'delete_conversation'}:
+        require_capability(principal, 'agents', 'use')
     if module == 'skills' and name in {'status', 'prepare', 'confirm'}:
         require_capability(principal, 'skills', 'read')
         if name != 'status':

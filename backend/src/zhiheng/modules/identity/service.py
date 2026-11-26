@@ -37,6 +37,21 @@ PASSWORD_WORKERS = 2
 
 
 class IdentityService:
+    async def active_role_ids(self, session: AsyncSession, user_id: UUID) -> set[UUID]:
+        rows = await session.scalars(
+            select(IdentityRole.id)
+            .join(IdentityUserRole)
+            .where(IdentityUserRole.user_id == user_id, IdentityRole.is_active.is_(True))
+        )
+        return set(rows)
+
+    async def active_role_options(self, session: AsyncSession, *, ids: set[UUID] | None = None) -> dict[UUID, str]:
+        query = select(IdentityRole.id, IdentityRole.name).where(IdentityRole.is_active.is_(True))
+        if ids is not None:
+            query = query.where(IdentityRole.id.in_(ids))
+        rows = await session.execute(query.order_by(IdentityRole.name, IdentityRole.id))
+        return dict(rows.tuples().all())
+
     async def _profile_user(self, session: AsyncSession, user_id: UUID, *, lock: bool = False) -> IdentityUser:
         query = select(IdentityUser).where(IdentityUser.id == user_id)
         if lock:

@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     sandbox_ready_seconds: int = Field(default=60, ge=5, le=180)
     sandbox_pip_index_url: str = 'https://pypi.org/simple'
     bocha_api_key: SecretStr = SecretStr('')
+    mcp_allowed_endpoints: tuple[str, ...] = ()
     web_search_timeout_seconds: float = Field(default=15, ge=1, le=30)
     milvus_uri: str | None = None
     milvus_token: SecretStr = SecretStr('')

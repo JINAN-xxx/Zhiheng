@@ -143,9 +143,12 @@ class AgentsUIRegressions(DeveloperBoundary):
         await expect(self.page.get_by_role('menuitem', name='上架广场')).to_have_count(0)
 
         permissions.extend(granted_permissions('platform:agents:plaza_publish'))
+        self.agent['skill_slugs'] = ['personal-workflow']
         await self.open_agents()
         await self.choose_agent_action('上架广场')
-        await self.page.get_by_role('dialog').get_by_role('button', name='上架广场', exact=True).click()
+        dialog = self.page.get_by_role('dialog')
+        await expect(dialog.get_by_text('绑定的个人技能仅通过此助手使用，技能详情和文件仍为个人资源。')).to_be_visible()
+        await dialog.get_by_role('button', name='上架广场', exact=True).click()
         await expect(self.page.get_by_text('已上架', exact=True)).to_be_visible()
         self.assertEqual(calls, [('PUT', {'expected_version': 5, 'department_id': None, 'allow_knowledge': False})])
 

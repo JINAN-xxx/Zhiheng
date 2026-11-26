@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy import select
 
+from tests.core.permission_support import account, grants
 from tests.core.provider import ProviderServer
 from zhiheng.api.inference.schemas import ChatBody
 from zhiheng.modules.agents.public import AgentConfig
@@ -141,6 +142,26 @@ async def test_saving_chat_model_missing_from_catalog_uses_one_bounded_trial(
     assert provider.requests[0]['model'] == 'glm-5.3'
     assert provider.requests[0]['max_completion_tokens'] == 512
     assert provider.requests[0]['messages'] == [{'role': 'user', 'content': 'Reply with OK only.'}]
+
+
+async def test_save_requires_trial_permission_only_if_catalog_cannot_verify_model(
+    admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer
+) -> None:
+    body = await configuration(admin, provider)
+    provider.catalog_models = [str(body['upstream_model'])]
+    provider.chat_models = ['glm-5.3']
+    async with account(admin, app, *grants('platform:models', 'create')) as (client, _, _):
+        response = await client.post('/api/models', json=body)
+        assert response.status_code == 201, response.text
+        response = await client.post('/api/models', json={**body, 'upstream_model': 'glm-5.3'})
+        assert response.status_code == 403, response.text
+        assert provider.requests == []
+    async with app.state.container.database.sessions() as session:
+        assert list(await session.scalars(select(ModelDefinition.upstream_model))) == [body['upstream_model']]
+    async with account(admin, app, *grants('platform:models', 'create', 'test')) as (client, _, _):
+        response = await client.post('/api/models', json={**body, 'upstream_model': 'glm-5.3'})
+        assert response.status_code == 201, response.text
+    assert len(provider.requests) == 1
 
 
 async def test_unfinished_save_trial_leaves_catalog_unchanged(

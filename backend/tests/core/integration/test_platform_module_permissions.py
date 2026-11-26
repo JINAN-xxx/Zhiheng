@@ -48,7 +48,9 @@ async def test_catalog_has_one_switch_per_module_and_no_automatic_grants(
     catalog = (await admin.get('/api/admin/permissions')).json()['items']
     codes = {item['code'] for item in catalog if item['code'].startswith('platform:')}
     assert codes == PLATFORM_PERMISSION_CODES
-    assert len([code for code in codes if code.endswith(':enabled')]) == 9
+    modules = [item for item in catalog if item['code'].startswith('platform:') and item['kind'] == 'module']
+    assert {item['code'] for item in modules} == {code for code in codes if code.endswith(':enabled')}
+    assert len(modules) == len({item['code'] for item in modules})
     role = await admin.post('/api/admin/roles', json={'name': 'Empty role'})
     assert role.status_code == 201 and role.json()['permissions'] == []
     async with member(app) as client:

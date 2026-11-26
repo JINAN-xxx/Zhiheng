@@ -8,6 +8,7 @@ import {
   deleteSkill,
   getSkill,
   getSkillContent,
+  getSkillReferences,
   listSkills,
   updateSkillStatus,
   publishPlatformSkill,
@@ -17,7 +18,6 @@ import type { Skill, SkillListQuery } from '../api/index.ts'
 
 interface ActionFailure {
   message: string
-  details?: unknown
 }
 
 export function useSkillsPage() {
@@ -49,6 +49,7 @@ export function useSkillsPage() {
   const uploadOpen = ref(false),
     uploadTarget = ref<Skill | null>(null)
   const deletingId = ref('')
+  const actionBlock = ref<{ title: string; message: string; details: unknown } | null>(null)
   const pending = reactive<Record<string, boolean>>({})
   const failures = reactive<Record<string, ActionFailure | undefined>>({})
   const query = reactive<SkillListQuery>({
@@ -70,7 +71,6 @@ export function useSkillsPage() {
   const saving = computed(() => Boolean(detail.value && pending[detail.value.skillId]))
   const deleting = computed(() => deletingId.value !== '')
   const actionError = computed(() => failures[detail.value?.skillId ?? '']?.message ?? '')
-  const actionDetails = computed(() => failures[detail.value?.skillId ?? '']?.details)
   const queryKey = () => JSON.stringify(query)
 
   async function load(): Promise<void> {
@@ -97,6 +97,7 @@ export function useSkillsPage() {
     if (activeTab.value === next) return
     listScope.replace()
     cancelPublicationConfirmation()
+    actionBlock.value = null
     setDetailOpen(false)
     uploadOpen.value = false
     uploadTarget.value = null
@@ -150,6 +151,15 @@ export function useSkillsPage() {
     if (interrupted || requestedQuery !== startedQuery) void load()
   }
 
+  function showActionBlock(
+    item: Skill,
+    action: '停用' | '删除',
+    message: string,
+    details: unknown
+  ): void {
+    actionBlock.value = { title: `无法${action}「${item.skillName}」`, message, details }
+  }
+
   async function toggleStatus(item: Skill): Promise<void> {
     const id = item.skillId
     if (!canToggleSkill(item) || pending[id] || deletingId.value === id) return
@@ -160,6 +170,37 @@ export function useSkillsPage() {
     pending[id] = true
     failures[id] = undefined
     try {
+      if (item.status === 'enabled') {
+        const impact = await getSkillReferences(id, context.signal)
+        if (!context.isCurrent()) return
+        const assistants = impact.references.filter(
+          (reference) => reference.kind === 'agent' || reference.kind === 'plaza_agent'
+        )
+        if (assistants.length) {
+          const steps = [
+            ...(assistants.some((reference) => reference.kind === 'agent')
+              ? ['在对应助手配置中移除此技能']
+              : []),
+            ...(assistants.some((reference) => reference.kind === 'plaza_agent')
+              ? ['更新关联助手的广场版本或将助手下架']
+              : [])
+          ]
+          if (requestedQuery === startedQuery)
+            showActionBlock(item, '停用', `请${steps.join('，')}，再停用。`, {
+              references: assistants
+            })
+          return
+        }
+        if (impact.references.length) {
+          if (
+            !(await confirm(
+              `停用「${item.skillName}」？此技能仍有使用中的引用，启用前依赖该技能的请求会失败。`
+            ))
+          )
+            return
+        }
+        if (!context.isCurrent() || !canToggleSkill(item)) return
+      }
       const updated = await updateSkillStatus(
         id,
         item.status === 'enabled' ? 'disabled' : 'enabled',
@@ -171,11 +212,12 @@ export function useSkillsPage() {
         syncSkill(updated)
       }
     } catch (reason) {
-      if (context.isCurrent() && !isAborted(reason))
-        failures[id] = {
-          message: errorMessage(reason),
-          details: reason instanceof ApiError ? reason.details : undefined
-        }
+      if (context.isCurrent() && !isAborted(reason)) {
+        if (reason instanceof ApiError && reason.code === 'skill_assistant_referenced') {
+          if (requestedQuery === startedQuery)
+            showActionBlock(item, '停用', reason.message, reason.details)
+        } else failures[id] = { message: errorMessage(reason) }
+      }
     } finally {
       if (context.isCurrent()) pending[id] = false
     }
@@ -334,6 +376,24 @@ export function useSkillsPage() {
     deletingId.value = item.skillId
     failures[item.skillId] = undefined
     try {
+      const impact = await getSkillReferences(item.skillId, context.signal)
+      if (!context.isCurrent() || detail.value?.skillId !== item.skillId) return
+      if (item.platformRevisionId || impact.references.length) {
+        const hasPlaza = impact.references.some((reference) => reference.kind === 'plaza_agent')
+        const hasEditor = impact.references.some((reference) => reference.kind === 'agent')
+        const steps = [
+          ...(item.platformRevisionId ? ['先下架该技能的平台版本'] : []),
+          ...(hasEditor ? ['在对应助手配置中移除此技能'] : []),
+          ...(hasPlaza ? ['更新关联助手的广场版本或将助手下架'] : []),
+          ...(impact.references.some(
+            (reference) => reference.kind !== 'agent' && reference.kind !== 'plaza_agent'
+          )
+            ? ['解除其他引用或等待相关调用结束']
+            : [])
+        ]
+        showActionBlock(item, '删除', `请${steps.join('，')}，再删除。`, impact)
+        return
+      }
       const accepted = await new Promise<boolean>((resolve) => {
         const dialog = Modal.confirm({
           title: `确认删除技能“${item.skillName}”？`,
@@ -368,11 +428,15 @@ export function useSkillsPage() {
         ensureVisiblePage()
       }
     } catch (reason) {
-      if (context.isCurrent() && !isAborted(reason))
-        failures[item.skillId] = {
-          message: errorMessage(reason),
-          details: reason instanceof ApiError ? reason.details : undefined
-        }
+      if (context.isCurrent() && !isAborted(reason)) {
+        if (
+          reason instanceof ApiError &&
+          (reason.code === 'skill_referenced' || reason.code === 'platform_skill_published')
+        ) {
+          if (detail.value?.skillId === item.skillId)
+            showActionBlock(item, '删除', reason.message, reason.details)
+        } else failures[item.skillId] = { message: errorMessage(reason) }
+      }
     } finally {
       if (context.isCurrent()) deletingId.value = ''
     }
@@ -431,7 +495,7 @@ export function useSkillsPage() {
     saving,
     deleting,
     actionError,
-    actionDetails,
+    actionBlock,
     uploadOpen,
     uploadTarget,
     load,

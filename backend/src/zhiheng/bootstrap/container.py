@@ -97,6 +97,7 @@ from zhiheng.modules.knowledge.public import (
     KnowledgeService,
     KnowledgeSharing,
 )
+from zhiheng.modules.mcp.public import McpService
 from zhiheng.modules.models.public import SummaryPolicy
 from zhiheng.modules.operations.public import OperationsService
 from zhiheng.modules.skills.public import SkillService
@@ -114,6 +115,7 @@ class Container:
         self.login_limits = LoginRateLimiter(self.redis, settings.worker_queue)
         self.cipher = CredentialCipher(settings.credential_key.get_secret_value())
         self.identity, self.skills = IdentityService(settings.session_ttl_seconds), SkillService()
+        self.mcp = McpService(self.database, self.identity, self.cipher, settings.mcp_allowed_endpoints)
         self.admin_identity = IdentityAdminService(self.identity)
         self.operations = OperationsService()
         self.files = FileService(create_file_storage(settings), self.identity)
@@ -359,6 +361,7 @@ class Container:
                 sandbox=self.sandbox,
                 reader=create_workspace_reader(),
                 web_search=create_web_search(settings),
+                mcp=self.mcp,
                 checkpoint_cleanup=create_workspace_checkpoint_cleanup(settings),
                 policy=WorkspacePolicy(
                     run_seconds=settings.sandbox_run_seconds,

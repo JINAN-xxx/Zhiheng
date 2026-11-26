@@ -62,6 +62,7 @@ class WorkspaceAgentKernel(Protocol):
         trigger_tokens: int,
         keep_tokens: int,
         web_search_enabled: bool = False,
+        mcp_enabled: bool = False,
         write_tool_context: ToolContextWriter | None = None,
         execution_instructions: str = '',
         tool_available: ToolAvailability | None = None,

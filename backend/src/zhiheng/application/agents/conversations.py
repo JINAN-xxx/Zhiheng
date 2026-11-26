@@ -25,7 +25,6 @@ from zhiheng.modules.files.public import FileInfo, PreparedAttachment, file_sema
 from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.knowledge.public import Hit, PreparationInfo, PreparedKnowledge, RetrievalState
 from zhiheng.modules.models.public import ModelBinding, ModelMessage, ModelOptions, ModelRequest, ModelService
-from zhiheng.modules.skills.public import require_frozen_available
 from zhiheng.runtime.contracts import TERMINAL_STATUSES, ClaimedRun, RunSnapshot
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
@@ -205,7 +204,7 @@ class AssistantConversationService:
         current = await self.store.current(session, principal, value.info.agent_id, lock=lock, plaza=value.info.plaza)
         if current.config != config:
             raise AppError('assistant_configuration_changed', '助手配置刚刚更新，请重新发送', 409)
-        await require_frozen_available(session, principal.id, current.skills)
+        await self.execution.validate_skills(session, current.skill_owner_id, current.skills, plaza=value.info.plaza)
         configured_binding = binding.model_copy(
             update={'max_output_tokens': config.max_tokens, 'options': ModelOptions(temperature=config.temperature)}
         )

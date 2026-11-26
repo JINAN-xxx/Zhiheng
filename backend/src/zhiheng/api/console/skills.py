@@ -105,6 +105,13 @@ async def content(
     return ContentInfo(content=await container.skills.content(session, principal.id, skill_id))
 
 
+@router.get('/{skill_id}/references')
+async def list_references(
+    skill_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
+) -> dict[str, list[dict[str, object]]]:
+    return await container.skill_management.references(session, principal, skill_id)
+
+
 @router.put('/{skill_id}/platform')
 async def publish_platform(
     skill_id: UUID,
@@ -116,7 +123,11 @@ async def publish_platform(
     async with session.begin():
         result = await container.skills.publish_platform(session, principal, skill_id, body.expected_version)
         await container.operations.record(
-            session, principal=principal, action='skill.platform.publish', resource_type='skill', resource_id=str(skill_id)
+            session,
+            principal=principal,
+            action='skill.platform.publish',
+            resource_type='skill',
+            resource_id=str(skill_id),
         )
         return result
 
@@ -132,7 +143,11 @@ async def withdraw_platform(
     async with session.begin():
         await container.skills.withdraw_platform(session, principal, skill_id, body.expected_revision_id)
         await container.operations.record(
-            session, principal=principal, action='skill.platform.withdraw', resource_type='skill', resource_id=str(skill_id)
+            session,
+            principal=principal,
+            action='skill.platform.withdraw',
+            resource_type='skill',
+            resource_id=str(skill_id),
         )
     return Response(status_code=204)
 

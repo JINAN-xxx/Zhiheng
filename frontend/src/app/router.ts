@@ -10,6 +10,7 @@ import { agentRoutes } from '../modules/agents/public.ts'
 import { workRoutes } from '../modules/work/public.ts'
 import { knowledgeRoutes } from '../modules/knowledge/public.ts'
 import { adminRoutes } from '../modules/admin/public.ts'
+import { mcpRoutes } from '../modules/mcp/routes.ts'
 import { firstModulePath } from '../shared/platformAccess.ts'
 import { accessRedirect } from './access.ts'
 import { errorMessage } from '../shared/http.ts'
@@ -22,6 +23,7 @@ declare module 'vue-router' {
     activeMenu?: string
     console?: boolean
     permission?: string
+    anyPermissions?: readonly string[]
     reuseByParam?: string
     conversationLayout?: boolean
   }
@@ -43,6 +45,7 @@ export const router = createRouter({
     ...skillRoutes,
     ...agentRoutes,
     ...workRoutes,
+    ...mcpRoutes,
     ...knowledgeRoutes,
     ...adminRoutes,
     {

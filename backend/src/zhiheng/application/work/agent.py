@@ -10,6 +10,7 @@ from zhiheng.application.work.context import WorkAgentContext
 from zhiheng.application.work.execution import WorkAgentExecutor
 from zhiheng.application.work.snapshots import fingerprint, frozen_skills, skill_selection
 from zhiheng.modules.files.public import FileInfo, validate_filename
+from zhiheng.modules.mcp.public import BoundTool
 from zhiheng.modules.models.public import ModelBinding, ModelRequest
 from zhiheng.modules.skills.public import (
     SkillSelection,
@@ -237,7 +238,10 @@ class WorkAgentService:
         return result
 
     async def admit(self, principal: Principal, task_id: UUID, body: AgentTurn) -> RunSnapshot:
-        intent = fingerprint({'task_id': str(task_id), **body.model_dump(mode='json')})
+        data = body.model_dump(mode='json', exclude={'mcp_tool'})
+        if body.mcp_tool is not None:
+            data['mcp_tool'] = body.mcp_tool.model_dump(mode='json')
+        intent = fingerprint({'task_id': str(task_id), **data})
         async with self.context.database.sessions.begin() as session:
             principal = await self.current(session, principal)
             await self.context.tasks.configuration(session, principal, task_id)
@@ -265,6 +269,7 @@ class WorkAgentService:
             memory = await self.context.tasks.execution_memory(session, principal, task_id)
             message_id = str(uuid5(body.client_request_id, 'user'))
             reseed_message: str | None = None
+            selected_mcp = BoundTool.freeze(body.mcp_tool, body.client_request_id) if body.mcp_tool else None
             web_search_enabled = self.context.web_search is not None and self.context.web_search.available
             latest_request = next((item for item in reversed(task.messages) if item.role == 'user'), None)
             if body.resume and latest_request is not None and latest_request.run_id is not None:
@@ -272,11 +277,17 @@ class WorkAgentService:
                     session, latest_request.run_id, 'work_agent', task_id
                 )
                 web_search_enabled = original.get('web_search_enabled') is True
+                if original.get('mcp_tool') is not None:
+                    selected_mcp = BoundTool.model_validate(original['mcp_tool'])
                 # No trusted checkpoint advanced past this request. Reuse its
                 # exact user input instead of resuming an older completed turn.
                 if memory.get('checkpoint_id') == original.get('checkpoint_id'):
                     reseed_message = latest_request.content
                     message_id = str(original.get('message_id') or message_id)
+            if selected_mcp is not None:
+                if self.context.mcp is None:
+                    raise AppError('mcp_unavailable', 'MCP 工具暂不可用', 503)
+                await self.context.mcp.authorize(session, principal, selected_mcp)
             binding = binding.model_copy(
                 update={
                     'options': binding.options.model_copy(
@@ -298,6 +309,7 @@ class WorkAgentService:
                     'configuration': configuration.model_dump(mode='json'),
                     'skills': frozen_skills(skills),
                     'web_search_enabled': web_search_enabled,
+                    **({'mcp_tool': selected_mcp.model_dump(mode='json')} if selected_mcp else {}),
                     'inputs': [item.model_dump(mode='json') for item in task.inputs],
                     'checkpoint_id': memory.get('checkpoint_id'),
                     'workspace_files': memory.get('files', []),

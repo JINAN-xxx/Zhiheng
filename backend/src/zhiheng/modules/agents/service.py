@@ -356,6 +356,31 @@ class AgentService:
             Agent.config['knowledge_base_ids'].contains([str(base_id)]),
         )
 
+    async def configured_skill_references(
+        self, session: AsyncSession, slug: str, *, owner_id: UUID
+    ) -> list[ResourceReference]:
+        references = await self._configuration_references(
+            session,
+            (Agent.owner_id == owner_id) & Agent.config['skill_slugs'].contains([slug]),
+        )
+        published = await session.scalars(
+            select(Agent)
+            .where(
+                Agent.owner_id == owner_id,
+                Agent.deleted_at.is_(None),
+                Agent.plaza_config['skill_slugs'].contains([slug]),
+            )
+            .order_by(Agent.id)
+        )
+        references.extend(
+            ResourceReference(
+                'plaza_agent', row.id, str(row.plaza_config['name']), 'published', row.owner_id, f'/agents/{row.id}'
+            )
+            for row in published
+            if row.plaza_config is not None
+        )
+        return references
+
     async def skill_references(
         self,
         session: AsyncSession,
@@ -364,17 +389,18 @@ class AgentService:
         owner_id: UUID,
         skill_ids: tuple[UUID, ...] = (),
     ) -> list[ResourceReference]:
-        references = await self._configuration_references(
-            session,
-            (Agent.owner_id == owner_id) & Agent.config['skill_slugs'].contains([slug]),
-        )
+        references = await self.configured_skill_references(session, slug, owner_id=owner_id)
+        frozen_skill = [AgentRunAudit.skills.contains([{'skill_id': str(skill_id)}]) for skill_id in skill_ids]
         runs = await session.scalars(
             select(Run)
             .join(AgentRunAudit, AgentRunAudit.run_id == Run.id)
+            .join(Agent, Agent.id == AgentRunAudit.agent_id)
             .where(
                 Run.status.in_(('pending', *ACTIVE_STATUSES)),
-                AgentRunAudit.owner_id == owner_id,
-                AgentRunAudit.config['skill_slugs'].contains([slug]),
+                or_(
+                    (AgentRunAudit.owner_id == owner_id) & AgentRunAudit.config['skill_slugs'].contains([slug]),
+                    *((Agent.owner_id == owner_id) & identity for identity in frozen_skill),
+                ),
             )
             .order_by(Run.id)
         )

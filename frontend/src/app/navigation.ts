@@ -7,7 +7,7 @@ export const navigationGroups = [
   {
     id: 'resources',
     title: '资源',
-    modules: ['models', 'credentials', 'knowledge', 'knowledge_settings', 'skills']
+    modules: ['models', 'credentials', 'knowledge', 'knowledge_settings', 'skills', 'mcp']
   },
   { id: 'development', title: '开发与用量', modules: ['developer', 'usage'] }
 ] satisfies { id: string; title: string; modules: PlatformModule[] }[]

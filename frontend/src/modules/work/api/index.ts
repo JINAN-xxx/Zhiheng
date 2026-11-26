@@ -3,6 +3,7 @@ import { followRun, parseRunSnapshot } from '../../../shared/stream.ts'
 import type { RunSnapshot, RunStatus } from '../../../shared/stream.ts'
 import { parseKnowledgeHit } from '../../knowledge/public.ts'
 import type { KnowledgeHit } from '../../knowledge/public.ts'
+import type { ToolSelection } from '../../mcp/public.ts'
 import {
   boolean,
   list,
@@ -393,6 +394,7 @@ export const admitTurn = (
     expected_version: number
     file_ids: string[]
     resume: boolean
+    mcp_tool?: ToolSelection
   },
   signal: AbortSignal
 ) =>

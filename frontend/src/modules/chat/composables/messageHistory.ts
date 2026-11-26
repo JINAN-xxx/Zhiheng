@@ -1,7 +1,7 @@
 import { nextTick, onBeforeUnmount, reactive, ref } from 'vue'
 import type { Ref } from 'vue'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
-import { identity } from '../../identity/public.ts'
+import { canUseCapability, identity } from '../../identity/public.ts'
 import { getMessagePage } from '../api/index.ts'
 import type { ChatMessage, Conversation } from '../api/index.ts'
 import { setMessageFeedback } from '../api/messageActions.ts'
@@ -104,7 +104,7 @@ export function useChatMessageHistory(options: MessageHistoryOptions) {
   }
 
   async function feedback(message: ChatMessage, value: FeedbackValue): Promise<void> {
-    if (feedbackBusy.has(message.id)) return
+    if (!canUseCapability('chat', 'feedback') || feedbackBusy.has(message.id)) return
     const blocked = messageActionReason(message)
     if (blocked) {
       error.value = blocked

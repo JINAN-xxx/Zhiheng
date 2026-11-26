@@ -13,6 +13,7 @@ from tests.core.permission_support import account, grants
 from tests.core.provider import ProviderServer
 from zhiheng.bootstrap.migrations import migrate
 from zhiheng.bootstrap.settings import Settings
+from zhiheng.modules.agents.public import AgentConfig
 from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.skills.orm import Skill, SkillRevision
 from zhiheng.modules.skills.public import SkillService, require_frozen_available, resolve_selection
@@ -205,3 +206,70 @@ async def test_platform_skill_is_selectable_in_work_and_runs_in_plaza_assistant(
             accepted = await session.get(Run, UUID(run.json()['id']))
             assert accepted is not None
             assert accepted.payload['skills'][0]['revision_id'] == skill['revision_id']
+
+
+async def test_private_skill_is_used_only_through_its_published_assistant(
+    admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer
+) -> None:
+    marker = 'OWNER PRIVATE ASSISTANT SKILL'
+    skill = await install(admin, 'private-assistant-workflow', marker)
+    agent = await assistant(admin, model_id, skill_slugs=[skill['slug']])
+    base = f'/api/agents/{agent["id"]}'
+    published = await admin.put(f'{base}/plaza', json={'expected_version': agent['version']})
+    assert published.status_code == 200, published.text
+
+    async with account(admin, app, *grants('platform:agents', 'use'), *grants('platform:skills')) as (visitor, _, _):
+        library = (await visitor.get('/api/skills', params={'source': 'upload'})).json()
+        assert all(item['id'] != skill['id'] for item in library['items'])
+        skill_path = f'/api/skills/{skill["id"]}'
+        assert (await visitor.get(skill_path)).status_code == 404
+        assert (await visitor.get(f'{skill_path}/content')).status_code == 404
+        assert (await visitor.get(f'{skill_path}/references')).status_code == 404
+        chat = await visitor.post(f'{base}/conversations?plaza=true', json={'client_request_id': str(uuid4())})
+        assert chat.status_code == 201, chat.text
+        assert marker not in chat.text and skill['slug'] not in chat.text
+        run = await send(visitor, agent['id'], chat.json()['id'], 'Hi')
+        await execute(app, run['id'])
+        done = await visitor.get(f'/api/runs/{run["id"]}')
+        assert done.status_code == 200, done.text
+        assert done.json()['status'] == 'completed' and marker not in done.text
+        assert any(marker in str(message['content']) for message in provider.requests[-1]['messages'])
+
+        queued = await send(visitor, agent['id'], chat.json()['id'], 'Follow-up')
+        refs = (await admin.get(f'{skill_path}/references')).json()['references']
+        assert {'agent', 'plaza_agent', 'run'} <= {row['kind'] for row in refs}
+        assert any(row['kind'] == 'run' and row['id'] is None and row['path'] is None for row in refs)
+        disabled = await admin.patch(
+            f'{skill_path}/status', json={'status': 'disabled', 'expected_version': skill['version']}
+        )
+        assert disabled.status_code == 409, disabled.text
+        conflict = disabled.json()['error']
+        assert conflict['code'] == 'skill_assistant_referenced'
+        assert {row['kind'] for row in conflict['details']['references']} == {'agent', 'plaza_agent'}
+        await execute(app, queued['id'])
+        follow_up = (await visitor.get(f'/api/runs/{queued["id"]}')).json()
+        assert follow_up['status'] == 'completed'
+
+        config = {key: value for key, value in agent.items() if key in AgentConfig.model_fields}
+        updated = await admin.patch(
+            base, json={**config, 'skill_slugs': [], 'expected_version': published.json()['version']}
+        )
+        assert updated.status_code == 200, updated.text
+        refs = (await admin.get(f'{skill_path}/references')).json()['references']
+        assert {row['kind'] for row in refs} == {'plaza_agent'}
+        assert refs[0]['path'] == f'/agents/{agent["id"]}'
+        blocked = await admin.patch(
+            f'{skill_path}/status', json={'status': 'disabled', 'expected_version': skill['version']}
+        )
+        assert blocked.status_code == 409
+        assert blocked.json()['error']['details']['references'] == refs
+        removed = await admin.request('DELETE', skill_path, json={})
+        assert removed.status_code == 409
+        assert removed.json()['error']['details']['references'] == refs
+
+        republished = await admin.put(f'{base}/plaza', json={'expected_version': updated.json()['version']})
+        assert republished.status_code == 200, republished.text
+        disabled = await admin.patch(
+            f'{skill_path}/status', json={'status': 'disabled', 'expected_version': skill['version']}
+        )
+        assert disabled.status_code == 200 and disabled.json()['status'] == 'disabled'

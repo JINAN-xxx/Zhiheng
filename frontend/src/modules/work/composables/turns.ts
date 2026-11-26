@@ -14,6 +14,7 @@ import {
 import type { CreateIntent, WorkDraft, WorkIntent } from '../presentation.ts'
 import type { WorkTasks } from './tasks.ts'
 import type { WorkRunObservation } from './runObservation.ts'
+import type { ToolSelection } from '../../mcp/public.ts'
 
 interface WorkTurnCommandsOptions {
   tasks: WorkTasks
@@ -28,6 +29,7 @@ export interface WorkTurnInput {
   message: string
   fileIds?: string[]
   resume?: boolean
+  mcpTool?: ToolSelection
 }
 
 export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
@@ -112,6 +114,7 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
         expectedVersion: task.version,
         clientRequestId: task.createClientRequestId,
         fileIds: [],
+        ...(intent?.mcpTool ? { mcpTool: intent.mcpTool } : {}),
         resume: false
       })
       retryKind.value = 'unstarted'
@@ -136,7 +139,8 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
     createDraft.value = {
       goal: intent.goal,
       modelId: intent.modelId,
-      skillSlugs: [...intent.skillSlugs]
+      skillSlugs: [...intent.skillSlugs],
+      ...(intent.mcpTool ? { mcpTool: intent.mcpTool } : {})
     }
     const context = createScope.replace()
     createLoading.value = true
@@ -160,6 +164,7 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
           expectedVersion: task.version,
           clientRequestId: intent.clientRequestId,
           fileIds: [],
+          ...(intent.mcpTool ? { mcpTool: intent.mcpTool } : {}),
           resume: false
         })
       pendingCreate = null
@@ -256,6 +261,7 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
             message: input.message,
             expectedVersion: task.version,
             fileIds: input.fileIds ?? [],
+            ...(input.mcpTool ? { mcpTool: input.mcpTool } : {}),
             resume: input.resume ?? false
           },
           createRequestId
@@ -276,6 +282,7 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
           message: intent.message,
           expected_version: intent.expectedVersion,
           file_ids: intent.fileIds,
+          ...(intent.mcpTool ? { mcp_tool: intent.mcpTool } : {}),
           resume: intent.resume
         },
         context.signal

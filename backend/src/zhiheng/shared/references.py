@@ -18,11 +18,10 @@ class ResourceReference:
     path: str | None = None
 
 
-def reference_conflict(
-    code: str, message: str, principal: Principal, references: Sequence[ResourceReference]
-) -> AppError:
+def reference_details(principal: Principal, references: Sequence[ResourceReference]) -> list[dict[str, object]]:
     labels = {
         'agent': '智能体',
+        'plaza_agent': '广场助手',
         'work': '工作任务',
         'knowledge': '知识库',
         'key': '密钥',
@@ -41,4 +40,10 @@ def reference_conflict(
                 'path': item.path if visible else None,
             }
         )
-    return AppError(code, message, 409, details={'references': details})
+    return details
+
+
+def reference_conflict(
+    code: str, message: str, principal: Principal, references: Sequence[ResourceReference]
+) -> AppError:
+    return AppError(code, message, 409, details={'references': reference_details(principal, references)})

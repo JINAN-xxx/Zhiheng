@@ -34,12 +34,12 @@ from zhiheng.modules.models.public import (
     estimate_messages,
     input_budget_for,
 )
-from zhiheng.modules.skills.public import require_frozen_available
+from zhiheng.modules.skills.public import SkillSelection, platform_skill_id, require_frozen_available
 from zhiheng.runtime.contracts import TERMINAL_STATUSES, ClaimedRun, RunSnapshot
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.agent import AgentSettings
 from zhiheng.shared.errors import AppError
-from zhiheng.shared.platform_permissions import require_execution_capabilities
+from zhiheng.shared.platform_permissions import require_capability, require_execution_capabilities
 from zhiheng.shared.principal import Principal
 
 logger = logging.getLogger(__name__)
@@ -90,6 +90,21 @@ class AssistantAgentService:
     @staticmethod
     def thread(owner_id: UUID, agent_id: UUID, conversation_id: UUID) -> str:
         return f'agent_chat:{owner_id}:{agent_id}:{conversation_id}'
+
+    async def validate_skills(
+        self, session: AsyncSession, skill_owner_id: UUID, skills: SkillSelection, *, plaza: bool
+    ) -> None:
+        try:
+            if plaza and any(platform_skill_id(skill.slug) is None for skill in skills.revisions):
+                publisher = await self.identity.principal_for_user(session, skill_owner_id)
+                require_capability(publisher, 'skills', 'use')
+            await require_frozen_available(session, skill_owner_id, skills)
+        except AppError as error:
+            if plaza:
+                raise AppError(
+                    'skill_unavailable', '该广场助手绑定的技能已停用或不可用，请联系发布者处理', 422
+                ) from error
+            raise
 
     def settings(
         self,
@@ -257,6 +272,7 @@ class AssistantAgentService:
         principal = await self.identity.principal_for_user(session, owner_id)
         frozen = await self.store.snapshot(session, run_id)
         source_owner = principal
+        skill_owner_id = owner_id
         plaza = False
         if conversation_id is not None:
             row = await self.store.authorize(session, principal, conversation_id)
@@ -271,6 +287,7 @@ class AssistantAgentService:
             current = await self.store.current(session, principal, frozen.agent_id, plaza=True, load_skills=False)
             if current.config.execution_config() != frozen.config.execution_config():
                 raise AppError('assistant_configuration_changed', '广场助手已更新，请重新发送', 409)
+            skill_owner_id = current.skill_owner_id
             base_ids = current.config.knowledge_base_ids
             if base_ids:
                 assert conversation_id is not None
@@ -284,7 +301,7 @@ class AssistantAgentService:
             if require_enabled and not agent.enabled:
                 raise AppError('assistant_disabled', '助手已停用，请重新启用后发送', 409)
             base_ids = agent.knowledge_base_ids
-        await require_frozen_available(session, owner_id, frozen.skills)
+        await self.validate_skills(session, skill_owner_id, frozen.skills, plaza=plaza)
         await self.attachments.validate(session, principal, frozen.execution.history_files, request.binding)
         await self.models.bindings.resolve(session, request.binding.model_id)
         await self.validate_sources(

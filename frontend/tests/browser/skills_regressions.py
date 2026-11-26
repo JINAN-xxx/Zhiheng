@@ -19,6 +19,7 @@ class SkillsUIRegressions(DeveloperBoundary):
         self.content = '---\nname: example\nversion: 1.0.0\n---\n# 技能正文\n\n**安全说明**\n\n<script>window.skillExecuted=true</script>\n\n[危险链接](javascript:window.skillExecuted=true)'
         self.upload = None
         self.confirmations = 0
+        self.references = []
         self.updates, self.sent, self.chat_history = [], [], []
 
     async def respond(self, route):
@@ -38,6 +39,8 @@ class SkillsUIRegressions(DeveloperBoundary):
             await route.fulfill(status=201, json=self.skill)
         elif path == '/api/skills/skill-1/content':
             await route.fulfill(json={'content': self.content})
+        elif path == '/api/skills/skill-1/references':
+            await route.fulfill(json={'references': self.references})
         elif path == '/api/skills/skill-1/status':
             body = route.request.post_data_json
             self.updates.append(body)
@@ -149,6 +152,42 @@ class SkillsUIRegressions(DeveloperBoundary):
         await expect(detail.locator('.skill-markdown')).to_contain_text('技能正文')
         await expect(detail.get_by_role('switch', name='启用技能“示例技能”', exact=True)).to_be_enabled()
         await self.open_skill_delete(detail)
+
+    async def test_skill_actions_guide_owner_when_a_plaza_assistant_depends_on_it(self):
+        self.references = [
+            {'kind': 'plaza_agent', 'id': 'agent-1', 'name': '研究助手',
+             'status': 'published', 'path': '/agents/agent-1'}
+        ]
+        await self.open_skills()
+        await self.page.locator('.skill-item').get_by_role('switch').click()
+        blocked = self.page.get_by_role('dialog', name='无法停用「示例技能」', exact=True)
+        await expect(blocked.get_by_text('请更新关联助手的广场版本或将助手下架，再停用。')).to_be_visible()
+        await expect(blocked.get_by_role('link', name='研究助手')).to_have_attribute('href', '/agents/agent-1')
+        self.assertEqual(self.updates, [])
+        close = re.compile(r'^关\s*闭$')
+        await blocked.get_by_role('button', name=close).click()
+        await expect(blocked).not_to_be_visible()
+
+        detail = await self.open_skill_detail()
+        toggle = detail.get_by_role('switch', name='启用技能“示例技能”', exact=True)
+        await toggle.click()
+        await expect(blocked).to_be_visible()
+        await blocked.get_by_role('button', name=close).click()
+        await expect(blocked).not_to_be_visible()
+        await expect(detail.get_by_role('link', name='研究助手')).to_have_count(0)
+        await expect(toggle).to_be_checked()
+        await detail.get_by_role('button', name='更多技能操作', exact=True).click()
+        await self.page.get_by_role('menuitem', name='删除技能', exact=True).click()
+        deletion = self.page.get_by_role('dialog', name='无法删除「示例技能」', exact=True)
+        await expect(deletion.get_by_text('请更新关联助手的广场版本或将助手下架，再删除。')).to_be_visible()
+        await expect(deletion.get_by_role('link', name='研究助手')).to_have_attribute('href', '/agents/agent-1')
+        self.assertEqual(len(self.items), 1)
+        await deletion.get_by_role('button', name=close).click()
+        await expect(deletion).not_to_be_visible()
+        self.references = []
+        await toggle.click()
+        await expect(toggle).not_to_be_checked()
+        self.assertEqual(self.updates, [{'status': 'disabled', 'expected_version': 1}])
 
     async def test_desktop_skill_items_fit_three_and_four_columns(self):
         self.items = [{**self.skill, 'id': f'skill-{index}', 'name': f'技能{index}'} for index in range(8)]

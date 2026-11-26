@@ -659,11 +659,20 @@ class SkillService:
         return revision.content
 
     async def set_status(
-        self, session: AsyncSession, principal: Principal, skill_id: UUID, *, status: SkillStatus, expected_version: int
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        skill_id: UUID,
+        *,
+        status: SkillStatus,
+        expected_version: int,
+        before_disable: Callable[[AsyncSession, str], Awaitable[None]] | None = None,
     ) -> SkillInfo:
         skill, revision = await self._row(session, principal.id, skill_id, lock=True)
         if skill.version != expected_version:
             raise AppError('skill_version_conflict', '技能已更新，请刷新后重试', 409)
+        if status == 'disabled' and skill.status != status and before_disable is not None:
+            await before_disable(session, skill.slug)
         skill.status, skill.version, skill.updated_at = status, skill.version + 1, utcnow()
         await session.flush()
         return self._info(skill, revision)

@@ -32,6 +32,7 @@ const moduleIcons = {
   chat: MessageOutlined,
   agents: RobotOutlined,
   work: TeamOutlined,
+  mcp: ApiOutlined,
   models: AppstoreOutlined,
   credentials: ApiOutlined,
   knowledge: DatabaseOutlined,

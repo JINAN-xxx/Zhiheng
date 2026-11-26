@@ -24,6 +24,9 @@ const saving = ref(false)
 const error = ref('')
 const ready = ref(false)
 const title = computed(() => (props.agent?.plazaVersion ? '更新广场版本' : '上架广场'))
+const hasPersonalSkills = computed(
+  () => props.agent?.skillSlugs.some((slug) => !/^platform-[a-f0-9]{32}$/.test(slug)) ?? false
+)
 
 async function load(): Promise<void> {
   const agent = props.agent
@@ -112,6 +115,12 @@ onBeforeUnmount(() => scope.dispose())
     @cancel="emit('close')"
   >
     <div class="publication-form">
+      <a-alert
+        v-if="hasPersonalSkills"
+        type="info"
+        show-icon
+        message="绑定的个人技能仅通过此助手使用，技能详情和文件仍为个人资源。"
+      />
       <label for="plaza-department">使用范围</label>
       <a-select
         id="plaza-department"

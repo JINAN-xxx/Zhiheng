@@ -16,6 +16,7 @@ from zhiheng.api.console.knowledge import router as knowledge_router
 from zhiheng.api.console.knowledge_graph import router as knowledge_graph_router
 from zhiheng.api.console.knowledge_settings import router as knowledge_settings_router
 from zhiheng.api.console.knowledge_sharing import router as knowledge_sharing_router
+from zhiheng.api.console.mcp import router as mcp_router
 from zhiheng.api.console.message_actions import public_router as shared_messages_router
 from zhiheng.api.console.message_actions import router as message_actions_router
 from zhiheng.api.console.models import router as models_router
@@ -49,4 +50,5 @@ router.include_router(runs_router)
 router.include_router(skills_router)
 router.include_router(usage_router)
 router.include_router(work_router)
+router.include_router(mcp_router)
 router.include_router(shared_messages_router)
