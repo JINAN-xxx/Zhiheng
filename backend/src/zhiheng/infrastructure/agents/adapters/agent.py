@@ -74,9 +74,11 @@ class _ModelCall(AgentMiddleware[AgentState[Any], AgentContext, Any]):
         prefix: list[AnyMessage],
         on_model_start: ModelStart,
         input_budget: int | None,
+        reference: str | None = None,
     ) -> None:
         self.prefix, self.on_model_start = prefix, on_model_start
         self.input_budget = input_budget
+        self.reference = reference
         self.started = False
         self.input_messages: tuple[AnyMessage, ...] | None = None
         self.before_summary: tuple[AnyMessage, ...] = ()
@@ -85,13 +87,25 @@ class _ModelCall(AgentMiddleware[AgentState[Any], AgentContext, Any]):
         # Observe the SDK input; SMM alone still chooses the prefix to summarize.
         self.before_summary = tuple(state['messages'])
 
+    def request_messages(self, history: Sequence[AnyMessage]) -> list[AnyMessage]:
+        if self.reference is None:
+            return [*self.prefix, *history]
+        current = history[-1]
+        if not isinstance(current, HumanMessage):
+            raise ProviderError(reason='invalid_request')
+        text, images = _message_content(current)
+        transient = _normalize_message(ModelMessage('user', f'{self.reference}\n\n{text}', images))
+        return [*self.prefix, *history[:-1], transient]
+
     def require_summary_capacity(self, selected: Sequence[BaseMessage], summary_output_tokens: int) -> None:
         if self.input_budget is None:
             return
         if list(self.before_summary[: len(selected)]) != list(selected):
             raise RuntimeError('Summary selection does not match the observed Agent input')
         preserved = self.before_summary[len(selected) :]
-        required = context_input_tokens([*self.prefix, *preserved]) + summary_output_tokens + SUMMARY_MESSAGE_OVERHEAD
+        required = (
+            context_input_tokens(self.request_messages(preserved)) + summary_output_tokens + SUMMARY_MESSAGE_OVERHEAD
+        )
         if required > self.input_budget:
             raise AppError(
                 'context_input_too_long',
@@ -107,7 +121,7 @@ class _ModelCall(AgentMiddleware[AgentState[Any], AgentContext, Any]):
     ) -> ModelResponse[Any]:
         if self.started:
             raise ProviderError(reason='invalid_request')
-        messages = [*self.prefix, *request.messages]
+        messages = self.request_messages(request.messages)
         estimated = context_input_tokens(messages)
         if context_image_bytes(_native_messages(messages)) > MAX_CONTEXT_IMAGE_BYTES:
             raise AppError('attachment_images_too_large', '本次请求含历史的安全图片数据合计最多16MiB', 422)
@@ -323,6 +337,7 @@ class AgentProvider:
         summarizer: SummaryWriter | None,
         on_model_start: ModelStart,
         input_budget: int | None = None,
+        reference_message_index: int | None = None,
     ) -> None:
         self._provider = provider
         if (
@@ -346,6 +361,7 @@ class AgentProvider:
         self._trigger_tokens, self._keep_tokens = trigger_tokens, keep_tokens
         self._summary_output_tokens = summary_output_tokens
         self._input_budget = input_budget
+        self._reference_message_index = reference_message_index
         self._summarizer, self._on_model_start = summarizer, on_model_start
         self.completed_checkpoint_id: str | None = None
         self.model_checkpoint_id: str | None = None
@@ -391,12 +407,20 @@ class AgentProvider:
         self.summary_estimated_tokens = count_tokens_approximately([HumanMessage(content=summary)])
         return summary
 
-    def _input(self, messages: tuple[ModelMessage, ...]) -> tuple[list[AnyMessage], list[AnyMessage | RemoveMessage]]:
+    def _input(
+        self, messages: tuple[ModelMessage, ...]
+    ) -> tuple[list[AnyMessage], list[AnyMessage | RemoveMessage], str | None]:
         if len(messages) != len(self._message_ids):
             raise ValueError('Chat Agent message identities do not match the frozen input')
         prefix: list[AnyMessage] = []
         history: list[AnyMessage | RemoveMessage] = []
-        for message, identity in zip(messages, self._message_ids, strict=True):
+        reference = None
+        for index, (message, identity) in enumerate(zip(messages, self._message_ids, strict=True)):
+            if index == self._reference_message_index:
+                if message.role != 'system' or message.images:
+                    raise ProviderError(reason='invalid_request')
+                reference = message.content
+                continue
             normalized = _normalize_message(message)
             normalized.id = identity
             (prefix if message.role in {'system', 'developer'} else history).append(normalized)
@@ -405,11 +429,11 @@ class AgentProvider:
         if self._incremental:
             if self._base_checkpoint_id == ROOT_CHECKPOINT_ID:
                 raise ValueError('Incremental chat requires an accepted checkpoint')
-            return prefix, history
+            return prefix, history, reference
         # Full frozen seeds create a new branch without appending duplicate history.
         if self._checkpointer is not None:
             history.insert(0, RemoveMessage(id=REMOVE_ALL_MESSAGES))
-        return prefix, history
+        return prefix, history, reference
 
     async def _agent_input(
         self,
@@ -460,7 +484,6 @@ class AgentProvider:
         agent: 'CompiledStateGraph[Any, AgentContext, Any, Any]',
         execution_id: str,
         model_call: _ModelCall,
-        prefix: list[AnyMessage],
     ) -> None:
         state = await self._completed_state(agent, execution_id)
         checkpoint_id = state.config.get('configurable', {}).get('checkpoint_id')
@@ -481,10 +504,11 @@ class AgentProvider:
         self.completed_checkpoint_id, self.model_checkpoint_id = checkpoint_id, model_checkpoint_id
         self.context_reservation_tokens = checkpoint_reservation_tokens(messages)
         self.context_image_bytes = context_image_bytes(_native_messages(messages))
-        self.model_image_bytes = context_image_bytes(_native_messages([*prefix, *model_messages]))
-        self.model_reservation_tokens = checkpoint_reservation_tokens([*prefix, *model_messages])
+        model_input = model_call.request_messages(model_messages)
+        self.model_image_bytes = context_image_bytes(_native_messages(model_input))
+        self.model_reservation_tokens = checkpoint_reservation_tokens(model_input)
         self.context_estimated_tokens = context_input_tokens(messages)
-        self.model_input_tokens = context_input_tokens([*prefix, *model_messages])
+        self.model_input_tokens = context_input_tokens(model_input)
         self.retained_rounds = sum(isinstance(message, AIMessage) for message in messages)
 
     async def _agent_deltas(
@@ -518,7 +542,7 @@ class AgentProvider:
 
     async def stream(self, messages: tuple[ModelMessage, ...]) -> AsyncIterator[ModelDelta]:
         client = _NativeChatModel(self._provider)
-        prefix, inputs = self._input(messages)
+        prefix, inputs, reference = self._input(messages)
         self.completed_checkpoint_id = self.model_checkpoint_id = None
         self.model_completed = False
         self.context_image_bytes = self.model_image_bytes = 0
@@ -526,7 +550,7 @@ class AgentProvider:
         self.model_reservation_tokens = self.context_estimated_tokens = self.model_input_tokens = (
             self.retained_rounds
         ) = 0
-        model_call = _ModelCall(prefix, self._on_model_start, self._input_budget)
+        model_call = _ModelCall(prefix, self._on_model_start, self._input_budget, reference)
 
         async def summarize_selected(selected: Sequence[BaseMessage]) -> str:
             model_call.require_summary_capacity(selected, self._summary_output_tokens)
@@ -561,7 +585,7 @@ class AgentProvider:
                 if not self.model_completed:
                     raise ProviderError(reason='incomplete_stream')
                 if self._checkpointer is not None:
-                    await self._checkpoint_result(agent, execution_id, model_call, prefix)
+                    await self._checkpoint_result(agent, execution_id, model_call)
         except (Exception, asyncio.CancelledError) as error:
             # Preserve received raw usage through saver failure or task cancellation.
             # GeneratorExit must close the stream immediately without yielding.

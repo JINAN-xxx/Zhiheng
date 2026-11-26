@@ -111,11 +111,6 @@ export const getAssistantConversations = (
     decode: list(parseConversation)
   })
 }
-export const getPlazaHistory = (signal: AbortSignal, before?: string) =>
-  http.request('/agents/plaza/history' + (before ? `?before=${encodeURIComponent(before)}` : ''), {
-    signal,
-    decode: list(parseConversation)
-  })
 export const createAssistantConversation = (
   agentId: string,
   requestId: string,

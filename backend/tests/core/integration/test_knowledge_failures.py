@@ -1,3 +1,5 @@
+import asyncio
+import json
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -10,7 +12,7 @@ from tests.core.integration.test_knowledge import VectorFixture, embedding_model
 from tests.core.legacy_work import legacy_work_request
 from tests.core.permission_support import member_knowledge_permissions  # noqa: F401 - pytest fixture by name
 from tests.core.provider import ProviderServer
-from zhiheng.modules.knowledge.orm import KnowledgeBase
+from zhiheng.modules.knowledge.orm import KnowledgeBase, RetrievalIntent
 from zhiheng.runtime.orm import Run
 from zhiheng.worker.execution import execute_run
 
@@ -133,11 +135,14 @@ async def test_failed_import_preserves_pointer_and_partial_carries_vectors(
     assert len(provider.requests) == 2
 
 
+@pytest.mark.parametrize('stream', [False, True], ids=['json', 'sse'])
 async def test_public_preparation_key_scope_polling_replay_and_cancel(
     admin: httpx.AsyncClient,
     app: FastAPI,
     provider: ProviderServer,
     model_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+    stream: bool,
 ) -> None:
     from sqlalchemy import select
 
@@ -160,20 +165,32 @@ async def test_public_preparation_key_scope_polling_replay_and_cancel(
     agent = await published(admin, model_id, knowledge_base_ids=[base['id']])
     key = await issue_agent_key(admin, agent)
     headers = {'Authorization': 'Bearer ' + key['api_key']}
-    body = {'messages': [{'role': 'user', 'content': 'Which port?'}], 'client_request_id': str(uuid4())}
+    body = {
+        'user': 'test-user',
+        'message': 'Which port?',
+        'client_request_id': str(uuid4()),
+        'stream': stream,
+    }
     endpoint = f'/v1/agents/{agent["id"]}/chat/completions'
-    response = await admin.post(endpoint, headers=headers, json=body)
+    with monkeypatch.context() as immediate:
+        immediate.setattr('zhiheng.api.inference.agents.PREPARATION_WAIT_SECONDS', 0)
+        timed_out = await admin.post(endpoint, headers=headers, json=body)
+    assert timed_out.status_code == 504, timed_out.text
+    assert timed_out.json()['error']['code'] == 'knowledge_preparation_wait_timeout'
+    response = await admin.post(endpoint, headers={**headers, 'Prefer': 'respond-async'}, json=body)
     assert response.status_code == 202, response.text
     intent = response.json()
     assert intent['polling_url'] == f'/v1/agents/{agent["id"]}/preparations/{intent["id"]}'
+    assert response.headers['Location'] == intent['polling_url']
     assert key['model_ids'] == []
-    retry = await admin.post(endpoint, headers=headers, json=body)
+    retry = await admin.post(endpoint, headers={**headers, 'Prefer': 'respond-async'}, json=body)
     assert retry.status_code == 202 and retry.json()['id'] == intent['id']
+    assert retry.headers['Preference-Applied'] == 'respond-async'
     other = await issue_agent_key(admin, agent)
     assert (
         await admin.get(intent['polling_url'], headers={'Authorization': 'Bearer ' + other['api_key']})
     ).status_code == 404
-    changed = await admin.post(endpoint, headers=headers, json={**body, 'stream': True})
+    changed = await admin.post(endpoint, headers=headers, json={**body, 'stream': not stream})
     assert changed.status_code == 409 and changed.json()['error']['code'] == 'idempotency_conflict'
     assert (await admin.get(f'/api/knowledge/preparations/{intent["id"]}')).status_code == 404
     intent = await finish_preparation(admin, app, intent, headers)
@@ -194,6 +211,80 @@ async def test_public_preparation_key_scope_polling_replay_and_cancel(
     cancelled = await legacy_work_request(admin, 'POST', intent['polling_url'] + '/cancel', headers=headers, json={})
     assert cancelled.status_code == 200 and cancelled.json()['run']['id'] == intent['run']['id']
     assert cancelled.json()['status'] == 'admitted'
+
+
+@pytest.mark.parametrize('stream', [False, True], ids=['json', 'sse'])
+async def test_public_agent_returns_answer_in_first_request(
+    admin: httpx.AsyncClient,
+    app: FastAPI,
+    provider: ProviderServer,
+    model_id: str,
+    stream: bool,
+) -> None:
+    from tests.core.integration.test_agents import issue_agent_key
+    from tests.core.integration.test_knowledge import finish_preparation
+    from tests.core.legacy_work import published
+
+    base = await ready_base(admin, app, provider)
+    for model in (model_id, base['embed_model_id']):
+        rate = await admin.post(
+            f'/api/models/{model}/rate-cards',
+            json={
+                'billing_mode': 'token',
+                'input_price': '0.000001',
+                'output_price': '0.000001',
+            },
+        )
+        assert rate.status_code == 201, rate.text
+    agent = await published(admin, model_id, knowledge_base_ids=[base['id']])
+    key = await issue_agent_key(admin, agent)
+    headers = {'Authorization': 'Bearer ' + key['api_key']}
+    endpoint = f'/v1/agents/{agent["id"]}/chat/completions'
+    body = {
+        'user': 'test-user',
+        'message': 'Which port?',
+        'client_request_id': str(uuid4()),
+        'stream': stream,
+    }
+    async with asyncio.TaskGroup() as group:
+        first = group.create_task(admin.post(endpoint, headers=headers, json=body))
+        async with asyncio.timeout(10):
+            while True:
+                async with app.state.container.database.sessions() as session:
+                    intent_id = await session.scalar(
+                        select(RetrievalIntent.id).where(RetrievalIntent.resource_id == UUID(agent['id']))
+                    )
+                if intent_id is not None:
+                    break
+                await asyncio.sleep(0.02)
+        assert not first.done()
+        finished = await finish_preparation(
+            admin,
+            app,
+            {
+                'id': str(intent_id),
+                'polling_url': f'/v1/agents/{agent["id"]}/preparations/{intent_id}',
+            },
+            headers,
+        )
+        assert finished['run']['status'] == 'completed'
+        response = await asyncio.wait_for(first, 10)
+    calls = len(provider.requests)
+    replay = await admin.post(endpoint, headers=headers, json=body)
+    completion_id = 'chatcmpl-' + UUID(finished['run']['id']).hex
+    for reply in (response, replay):
+        assert reply.status_code == 200, reply.text
+        if stream:
+            assert reply.headers['content-type'].startswith('text/event-stream')
+            payloads = [line[6:] for line in reply.text.splitlines() if line.startswith('data: ')]
+            assert payloads[-1] == '[DONE]'
+            frames = [json.loads(payload) for payload in payloads[:-1]]
+            assert all(frame['id'] == completion_id for frame in frames)
+            assert ''.join(frame['choices'][0]['delta'].get('content', '') for frame in frames) == '你好'
+        else:
+            assert reply.json()['id'] == completion_id
+            assert reply.json()['choices'][0]['message']['content'] == '你好'
+    assert len(provider.requests) == calls
 
 
 async def test_work_selection_rechecks_knowledge_availability(

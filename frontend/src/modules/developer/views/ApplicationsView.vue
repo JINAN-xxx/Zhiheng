@@ -185,66 +185,74 @@
               <a-tab-pane key="keys" tab="访问密钥" />
               <a-tab-pane key="models" tab="模型直调授权" />
               <a-tab-pane key="resources" tab="资源授权" />
+              <a-tab-pane v-if="mcpAvailable" key="mcp" tab="MCP 工具" />
               <a-tab-pane key="usage" tab="调用记录" />
               <a-tab-pane key="requests" tab="请求诊断" />
             </a-tabs>
 
-            <ApplicationOverviewPanel
-              v-if="activeTab === 'overview'"
-              :application="selectedApplication"
-              @navigate="changeTab"
-            />
-            <ApplicationKeysPanel
-              v-else-if="activeTab === 'keys'"
-              :keys="keys"
-              :scope-catalog="scopeCatalog"
-              :models="models"
-              :agents="agents"
-              :resources="resources"
-              :loading="keyLoading"
-              :error="keyError"
-              :can-list="canListKeys"
-              :can-create="
-                canCreateKey &&
-                selectedApplication.status === 'active' &&
-                selectedApplication.platformEnabled !== false
-              "
-              :actions="keyActions"
-              @create="openKeyForm"
-              @retry="loadKeys"
-              @command="handleKeyAction"
-            />
-            <ApplicationModelsPanel
-              v-else-if="activeTab === 'models'"
-              :keys="keys"
-              :models="models"
-              :loading="keyLoading || modelLoading"
-              :error="keyError || modelError"
-              :can-view="canViewModelAuthorizations"
-              @retry="loadModelAuthorizations"
-            />
-            <ApplicationResourcesPanel
-              v-else-if="activeTab === 'resources'"
-              :application="selectedApplication"
-              @version-change="updateResourceApplication"
-            />
-            <ApplicationRequestLogs
-              v-else-if="activeTab === 'requests'"
-              :application-id="selectedApplication.applicationId"
-              :can-query="canQueryUsage"
-            />
-            <ApplicationUsagePanel
-              v-else
-              :rows="usageRows"
-              :total="usageTotal"
-              :loading="usageLoading"
-              :error="usageError"
-              :can-query="canQueryUsage"
-              :page-num="usageQuery.pageNum"
-              :page-size="usageQuery.pageSize"
-              @retry="loadUsage"
-              @page-change="changeUsagePage"
-            />
+            <KeepAlive :key="detailEpoch">
+              <ApplicationOverviewPanel
+                v-if="activeTab === 'overview'"
+                :application="selectedApplication"
+                @navigate="changeTab"
+              />
+              <ApplicationKeysPanel
+                v-else-if="activeTab === 'keys'"
+                :keys="keys"
+                :scope-catalog="scopeCatalog"
+                :models="models"
+                :agents="agents"
+                :resources="resources"
+                :loading="keyLoading"
+                :error="keyError"
+                :can-list="canListKeys"
+                :can-create="
+                  canCreateKey &&
+                  selectedApplication.status === 'active' &&
+                  selectedApplication.platformEnabled !== false
+                "
+                :actions="keyActions"
+                @create="openKeyForm"
+                @retry="loadKeys"
+                @command="handleKeyAction"
+              />
+              <ApplicationModelsPanel
+                v-else-if="activeTab === 'models'"
+                :keys="keys"
+                :models="models"
+                :loading="keyLoading || modelLoading"
+                :error="keyError || modelError"
+                :can-view="canViewModelAuthorizations"
+                @retry="loadModelAuthorizations"
+              />
+              <ApplicationResourcesPanel
+                v-else-if="activeTab === 'resources'"
+                :application="selectedApplication"
+                @version-change="updateResourceApplication"
+              />
+              <ApplicationMcpPanel
+                v-else-if="activeTab === 'mcp' && mcpAvailable"
+                :key="selectedApplication.applicationId"
+                :application="selectedApplication"
+              />
+              <ApplicationRequestLogs
+                v-else-if="activeTab === 'requests'"
+                :application-id="selectedApplication.applicationId"
+                :can-query="canQueryUsage"
+              />
+              <ApplicationUsagePanel
+                v-else-if="activeTab === 'usage'"
+                :rows="usageRows"
+                :total="usageTotal"
+                :loading="usageLoading"
+                :error="usageError"
+                :can-query="canQueryUsage"
+                :page-num="usageQuery.pageNum"
+                :page-size="usageQuery.pageSize"
+                @retry="loadUsage"
+                @page-change="changeUsagePage"
+              />
+            </KeepAlive>
           </template>
         </section>
       </section>
@@ -360,6 +368,23 @@
             <a-button v-if="agentError" type="link" @click="loadKeyTargets"
               >重新加载智能体</a-button
             >
+          </a-form-item>
+          <a-form-item
+            v-if="keyForm.scopes.includes('mcp:invoke')"
+            label="可调用的 MCP 工具"
+            required
+          >
+            <a-select
+              :value="keyForm.mcpToolIds"
+              aria-label="可调用的 MCP 工具"
+              mode="multiple"
+              option-filter-prop="label"
+              placeholder="选择此应用已发布的工具"
+              :loading="targetsLoading"
+              :options="mcpOptions"
+              @change="setKeySelection('mcpToolIds', $event)"
+            />
+            <a-alert v-if="mcpError" :message="mcpError" type="error" />
           </a-form-item>
           <a-form-item v-if="resourceScopesSelected" label="资源与动作" name="resourceActions">
             <a-select
@@ -517,6 +542,7 @@ import ApplicationUsagePanel from '../components/ApplicationUsagePanel.vue'
 import ApplicationRequestLogs from '../components/ApplicationRequestLogs.vue'
 import ApplicationApiDocs from '../components/ApplicationApiDocs.vue'
 import ApplicationResourcesPanel from '../components/ApplicationResourcesPanel.vue'
+import ApplicationMcpPanel from '../components/ApplicationMcpPanel.vue'
 const {
   scopeCatalog,
   catalogLoading,
@@ -557,6 +583,8 @@ const {
   showApplicationList,
   showDocs,
   activeTab,
+  mcpAvailable,
+  detailEpoch,
   canListKeys,
   canCreateKey,
   canViewModelAuthorizations,
@@ -564,6 +592,8 @@ const {
   keyActions,
   modelOptions,
   agentOptions,
+  mcpOptions,
+  mcpError,
   resourceOptions,
   createOptions,
   resourceScopesSelected,

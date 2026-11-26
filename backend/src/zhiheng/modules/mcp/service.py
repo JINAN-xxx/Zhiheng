@@ -23,6 +23,7 @@ from zhiheng.modules.mcp.contracts import (
     ToolSelection,
 )
 from zhiheng.modules.mcp.orm import McpCall, McpServer
+from zhiheng.modules.mcp.publications import McpPublications
 from zhiheng.modules.mcp.transport import McpTransport
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.platform_permissions import has_capability, require_capability
@@ -45,6 +46,7 @@ class McpService:
         self.identity = identity
         self.cipher = cipher
         self.transport = McpTransport(allowed_endpoints)
+        self.publications = McpPublications(database, cipher, self.transport)
 
     async def servers(self, session: AsyncSession, principal: Principal) -> list[ServerView]:
         rows = await session.scalars(
@@ -225,7 +227,8 @@ class McpService:
     def _view(cls, row: McpServer, principal: Principal) -> ServerView:
         can_configure = has_capability(principal, 'mcp', 'configure')
         can_grant = has_capability(principal, 'mcp', 'grant')
-        tools = cls._tools(row) if can_configure or can_grant else []
+        can_review = can_configure or can_grant or has_capability(principal, 'mcp', 'publish')
+        tools = cls._tools(row) if can_review else []
         if not can_grant:
             for tool in tools:
                 tool.role_ids = []

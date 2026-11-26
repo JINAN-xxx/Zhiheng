@@ -168,7 +168,8 @@ class GraphJobs:
             async with self.database.sessions.begin() as session:
                 lease_until = await self.store.renew(session, claim)
             control.renew(lease_until)
-            control.check_operation()
+            # Local I/O may be cancelled while the SDK is draining a failed
+            # operation. Only the database fence can stop the observer.
 
     async def _execute(
         self,

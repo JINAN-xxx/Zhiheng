@@ -111,8 +111,8 @@ async def completed_public_knowledge(
     from tests.core.integration.test_agents import issue_agent_key
 
     key = await issue_agent_key(admin, agent)
-    headers = {'Authorization': 'Bearer ' + key['api_key']}
-    body = {'messages': [{'role': 'user', 'content': 'What remains recoverable?'}], 'client_request_id': str(uuid4())}
+    headers = {'Authorization': 'Bearer ' + key['api_key'], 'Prefer': 'respond-async'}
+    body = {'user': 'test-user', 'message': 'What remains recoverable?', 'client_request_id': str(uuid4())}
     endpoint = f'/v1/agents/{agent["id"]}/chat/completions'
     first = await admin.post(endpoint, headers=headers, json=body)
     assert first.status_code == 202, first.text
@@ -165,7 +165,7 @@ async def test_public_accepted_replay_uses_original_authorization_not_model_live
     polled = await admin.get(context['intent']['polling_url'], headers=context['headers'])
     assert replay.status_code == 200 and replay.json()['id'] == before['id'], replay.text
     assert polled.status_code == 200 and polled.json()['run']['id'] == context['intent']['run']['id'], polled.text
-    for changes in ({'messages': [{'role': 'user', 'content': 'Different'}]}, {'stream': True}):
+    for changes in ({'message': 'Different'}, {'stream': True}):
         conflict = await legacy_work_request(
             admin, 'POST', context['endpoint'], headers=context['headers'], json={**context['body'], **changes}
         )
@@ -442,7 +442,7 @@ async def test_public_cancel_filters_sources_using_original_owner_acl(
         )
         assert issued.status_code == 201, issued.text
         key = issued.json()
-        headers = {'Authorization': 'Bearer ' + key['api_key']}
+        headers = {'Authorization': 'Bearer ' + key['api_key'], 'Prefer': 'respond-async'}
         response = await member.post(
             f'/v1/agents/{agent["id"]}/chat/completions',
             headers=headers,

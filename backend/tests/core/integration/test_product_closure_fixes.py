@@ -196,8 +196,8 @@ async def test_agent_object_grant_admits_knowledge_retrieval_without_direct_mode
     assert key['model_ids'] == []
     call = await admin.post(
         '/v1/agents/' + a['id'] + '/chat/completions',
-        headers={'Authorization': f'Bearer {key["api_key"]}'},
-        json={'messages': [{'role': 'user', 'content': 'port'}], 'client_request_id': str(uuid4())},
+        headers={'Authorization': f'Bearer {key["api_key"]}', 'Prefer': 'respond-async'},
+        json={'user': 'test-user', 'message': 'port', 'client_request_id': str(uuid4())},
     )
     assert call.status_code == 202, call.text
 

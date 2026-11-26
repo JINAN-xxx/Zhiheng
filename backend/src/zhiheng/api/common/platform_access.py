@@ -12,6 +12,7 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
         **dict.fromkeys(('create', 'update', 'sync'), 'mcp:configure'),
         **dict.fromkeys(('roles', 'grant'), 'mcp:grant'),
         'calls': 'mcp:audit',
+        'publication_sources': 'mcp:publish',
     },
     'chat': {
         **dict.fromkeys(('conversations', 'messages', 'context_info', 'conversation_detail'), 'chat:read'),
@@ -73,6 +74,7 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
         'skills': 'skills:read',
         'get': 'skills:read',
         'content': 'skills:read',
+        'platform_detail': 'skills:read',
         'list_references': 'skills:read',
         'remove': 'skills:delete',
         'publish_platform': 'skills:platform_publish',
@@ -84,6 +86,7 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
                 'applications',
                 'scope_catalog',
                 'agent_candidates',
+                'mcp_publications',
                 'application',
                 'keys',
                 'key',
@@ -101,12 +104,13 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
         'disable': 'developer:toggle',
         'delete': 'developer:delete',
         'issue': 'developer:key_create',
+        'publish_mcp_tool': 'developer:grant',
+        'withdraw_mcp_tool': 'developer:grant',
         'rotate': 'developer:key_rotate',
         'revoke': 'developer:key_revoke',
         'delete_key': 'developer:key_delete',
         'bind_resource': 'developer:grant',
         'unbind_resource': 'developer:grant',
-        'resource_quota': 'developer:grant',
     },
     'knowledge': {
         **dict.fromkeys(
@@ -200,6 +204,9 @@ def _authorize_identity(request: Request, principal: Principal, name: str) -> No
 
 
 def _authorize_administration(request: Request, principal: Principal, module: str, name: str) -> bool:
+    if module == 'developer' and name == 'resource_quota':
+        principal.require_admin()
+        return True
     if module == 'admin_identity':
         _authorize_identity(request, principal, name)
         return True

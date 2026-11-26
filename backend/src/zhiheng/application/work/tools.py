@@ -15,7 +15,6 @@ from zhiheng.application.work.search_policy import SearchPolicy
 from zhiheng.application.work.snapshots import skill_selection
 from zhiheng.infrastructure.sandbox import SandboxFile, SandboxInput, SandboxSession, sandbox_path
 from zhiheng.modules.files.public import FileInfo
-from zhiheng.modules.mcp.public import BoundTool
 from zhiheng.modules.search.public import WebSearchRequest
 from zhiheng.modules.skills.public import ParsedSkillPackage, SkillRevisionValue
 from zhiheng.modules.work.public import (
@@ -75,8 +74,6 @@ class WorkspaceTools:
         self._mutation_pending = False
         self._lock = asyncio.Lock()
         self.search_policy = SearchPolicy(getattr(self.context.policy, 'web_search_calls', 6))
-        selection = claim.payload.get('mcp_tool')
-        self.mcp_selection = BoundTool.model_validate(selection) if selection is not None else None
 
     @property
     def blocking(self) -> bool:
@@ -321,13 +318,6 @@ class WorkspaceTools:
             and any(isinstance(group, str) and group in WORK_CODE_TOOLSETS for group in groups)
         )
         self.principal = await self.service.guard(self.claim, code=code)
-        if name == 'query_mcp':
-            selected = self.mcp_selection
-            if self.context.mcp is None or selected is None or arguments:
-                raise AppError('mcp_tool_forbidden', '本轮任务没有对应的 MCP 工具授权', 403)
-            async with self.context.database.sessions() as session:
-                await self.context.mcp.authorize(session, self.principal, selected)
-            action_id = str(uuid5(selected.request_id, 'mcp'))
         await self._restore_workspace()
         cached = await self._cached_result(name, arguments, action_id)
         if cached is not None:
@@ -395,7 +385,7 @@ class WorkspaceTools:
                     else '文件操作结果尚未完整确认，请检查执行记录和成果后继续',
                     409,
                 ) from error
-            if error.code == 'sandbox_dependency_failed' or name in {'web_search', 'query_mcp'}:
+            if error.code == 'sandbox_dependency_failed' or name == 'web_search':
                 return self._shown(name, failure, action_id)
             self.progress.tool_result_tokens = max(
                 0, self.progress.tool_result_tokens - tool_result_tokens({**failure, 'data': None})
@@ -526,7 +516,6 @@ class WorkspaceTools:
             'write_todos': self._write_todos,
             'read_history': self._read_history,
             'web_search': self._web_search,
-            'query_mcp': self._query_mcp,
             'run_python': self._run_python,
             'execute': self._execute,
             'write_file': self._write_file,
@@ -542,12 +531,6 @@ class WorkspaceTools:
     @staticmethod
     def _success(data: object) -> dict[str, object]:
         return {'success': True, 'data': data, 'error': None}
-
-    async def _query_mcp(self, arguments: dict[str, object]) -> dict[str, object]:
-        if self.context.mcp is None or self.mcp_selection is None:
-            raise AppError('mcp_unavailable', 'MCP 工具暂不可用', 503)
-        text = await self.context.mcp.execute(self.principal, self.mcp_selection, self.claim.id)
-        return self._success({'tool': self.mcp_selection.name, 'text': text})
 
     async def _web_search(self, arguments: dict[str, object]) -> dict[str, object]:
         try:
@@ -803,7 +786,6 @@ class WorkspaceTools:
             'request_input': '等待补充信息',
             'read_history': '核对历史执行记录',
             'web_search': '搜索公开网页',
-            'query_mcp': '查询 MCP 工具',
         }.get(name, '处理任务')
 
     async def finalize_outputs(self) -> None:

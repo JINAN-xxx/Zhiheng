@@ -3,7 +3,7 @@
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, TypeAdapter
 from sqlalchemy import or_, select, text, tuple_
@@ -151,7 +151,14 @@ class AssistantConversations:
         return published.source_owner_id
 
     async def create(
-        self, session: AsyncSession, principal: Principal, agent_id: UUID, request_id: UUID, *, plaza: bool = False
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        agent_id: UUID,
+        request_id: UUID,
+        *,
+        plaza: bool = False,
+        api_owner: tuple[UUID, str] | None = None,
     ) -> AssistantConversationInfo:
         key = int.from_bytes(hashlib.sha256(principal.id.bytes + request_id.bytes).digest()[:8], 'big', signed=True)
         await session.execute(text('SELECT pg_advisory_xact_lock(:key)'), {'key': key})
@@ -163,14 +170,18 @@ class AssistantConversations:
         if existing is not None:
             if existing.deleted_at is not None:
                 raise AppError('assistant_conversation_not_found', '助手对话不存在', 404)
-            if existing.agent_id != agent_id or existing.plaza != plaza:
+            existing_api = (existing.api_application_id, existing.api_user) if existing.api_application_id else None
+            if existing.agent_id != agent_id or existing.plaza != plaza or existing_api != api_owner:
                 raise AppError('idempotency_conflict', '此创建标识已用于其他助手', 409)
             return await self.info(session, existing)
         current = await self.current(session, principal, agent_id, lock=True, plaza=plaza, load_skills=not plaza)
         row = AssistantConversation(
+            id=request_id if api_owner else uuid4(),
             owner_id=principal.id,
             agent_id=agent_id,
             create_request_id=request_id,
+            api_application_id=api_owner[0] if api_owner else None,
+            api_user=api_owner[1] if api_owner else None,
             plaza=plaza,
             config=current.config.model_dump(mode='json'),
             skills=TypeAdapter(SkillSelection).dump_python(current.skills, mode='json'),
@@ -197,6 +208,7 @@ class AssistantConversations:
         found = await session.scalar(
             select(AssistantConversation.id).where(
                 lookup,
+                AssistantConversation.api_application_id.is_(None),
                 AssistantConversation.owner_id == principal.id,
                 AssistantConversation.agent_id == agent_id,
                 AssistantConversation.plaza == plaza,
@@ -234,6 +246,7 @@ class AssistantConversations:
             AssistantConversation.owner_id == principal.id,
             AssistantConversation.agent_id == agent_id,
             AssistantConversation.plaza == plaza,
+            AssistantConversation.api_application_id.is_(None),
             AssistantConversation.deleted_at.is_(None),
         )
         if before is not None:
@@ -243,6 +256,7 @@ class AssistantConversations:
                     AssistantConversation.owner_id == principal.id,
                     AssistantConversation.agent_id == agent_id,
                     AssistantConversation.plaza == plaza,
+                    AssistantConversation.api_application_id.is_(None),
                 )
             )
             if cursor is None:
@@ -277,10 +291,17 @@ class AssistantConversations:
         return [await self.info(session, row) for row in rows]
 
     async def require(
-        self, session: AsyncSession, principal: Principal, agent_id: UUID, conversation_id: UUID, *, lock: bool = False
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        agent_id: UUID,
+        conversation_id: UUID,
+        *,
+        lock: bool = False,
+        api_owner: tuple[UUID, str] | None = None,
     ) -> AssistantConversationValue:
-        row = await self.authorize(session, principal, conversation_id, lock=lock)
-        if row.agent_id != agent_id:
+        row = await self.authorize(session, principal, conversation_id, lock=lock, api=api_owner is not None)
+        if row.agent_id != agent_id or (api_owner is not None and (row.api_application_id, row.api_user) != api_owner):
             raise AppError('assistant_conversation_not_found', '助手对话不存在', 404)
         config = await self._current_or_saved_config(session, row)
         info = await self.info(session, row, config=config)
@@ -296,7 +317,7 @@ class AssistantConversations:
         rows = await session.scalars(query.order_by(AssistantTurn.sequence.desc()).limit(limit))
         return [AssistantTurnInfo.model_validate(row, from_attributes=True) for row in reversed(list(rows))]
 
-    async def add_turn(
+    async def add_turn(  # noqa: PLR0913 - frozen turn data and its ownership context
         self,
         session: AsyncSession,
         principal: Principal,
@@ -308,8 +329,10 @@ class AssistantConversations:
         sources: list[dict[str, object]],
         agent_name: str,
         attachments: tuple[AttachmentSummary, ...] = (),
+        *,
+        api: bool = False,
     ) -> None:
-        row = await self.authorize(session, principal, conversation_id)
+        row = await self.authorize(session, principal, conversation_id, api=api)
         session.add(
             AssistantTurn(
                 conversation_id=conversation_id,
@@ -344,7 +367,13 @@ class AssistantConversations:
 
     async def turn_for_run(self, session: AsyncSession, principal: Principal, run_id: UUID) -> AssistantTurnInfo:
         turn = await session.scalar(
-            select(AssistantTurn).where(AssistantTurn.run_id == run_id, AssistantTurn.owner_id == principal.id)
+            select(AssistantTurn)
+            .join(AssistantConversation, AssistantConversation.id == AssistantTurn.conversation_id)
+            .where(
+                AssistantTurn.run_id == run_id,
+                AssistantTurn.owner_id == principal.id,
+                AssistantConversation.api_application_id.is_(None),
+            )
         )
         if turn is None:
             raise AppError('assistant_conversation_not_found', '助手对话不存在', 404)
@@ -365,12 +394,21 @@ class AssistantConversations:
         )
 
     async def authorize(
-        self, session: AsyncSession, principal: Principal, conversation_id: UUID, *, lock: bool = False
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        conversation_id: UUID,
+        *,
+        lock: bool = False,
+        api: bool = False,
     ) -> AssistantConversation:
         query = select(AssistantConversation).where(
             AssistantConversation.id == conversation_id,
             AssistantConversation.owner_id == principal.id,
             AssistantConversation.deleted_at.is_(None),
+            AssistantConversation.api_application_id.is_not(None)
+            if api
+            else AssistantConversation.api_application_id.is_(None),
         )
         if lock:
             query = query.with_for_update().execution_options(populate_existing=True)
@@ -412,7 +450,13 @@ class AssistantConversations:
         turn = await session.scalar(select(AssistantTurn).where(AssistantTurn.run_id == run_id))
         if turn is None:
             return
-        row = await self.authorize(session, Principal(audit.owner_id, '', False), turn.conversation_id, lock=True)
+        row = await self.authorize(
+            session,
+            Principal(audit.owner_id, '', False),
+            turn.conversation_id,
+            lock=True,
+            api=metadata.api_conversation_id is not None,
+        )
         latest = await self.turns(session, row.id, limit=1)
         if (
             accepted

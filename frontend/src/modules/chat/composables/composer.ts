@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import type { Ref } from 'vue'
-import { message as toast } from 'ant-design-vue'
+import { feedback as toast } from '../../../shared/feedback.ts'
 import { canUseCapability } from '../../identity/public.ts'
 import type { ChatModel } from '../../models/public.ts'
 import type { Skill } from '../../skills/public.ts'

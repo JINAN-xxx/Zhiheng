@@ -24,6 +24,10 @@ class ContentInfo(BaseModel):
     content: str
 
 
+class PlatformSkillDetail(ContentInfo):
+    skill: SkillInfo
+
+
 class PublishRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     expected_version: int = Field(strict=True, ge=1)
@@ -89,6 +93,19 @@ async def confirm(
 ) -> SkillInfo:
     async with session.begin():
         return await container.skills.confirm(session, principal, draft_id)
+
+
+@router.get('/platform/{skill_id}')
+async def platform_detail(
+    skill_id: UUID,
+    response: Response,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> PlatformSkillDetail:
+    skill, text = await container.skills.platform_detail(session, skill_id)
+    response.headers['Cache-Control'] = 'no-store'
+    return PlatformSkillDetail(skill=skill, content=text)
 
 
 @router.get('/{skill_id}')

@@ -49,7 +49,12 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
     pollScope = new RequestScope()
   const build = computed(() => jobs.value.find((job) => job.operation === 'build') ?? null)
   const preview = computed(() => jobs.value.find((job) => job.operation === 'preview') ?? null)
-  const active = computed(() => jobs.value.some(graphIsActive))
+  const activeJobs = computed(() =>
+    jobs.value.filter(
+      (job) => (job.operation === 'build' || job.operation === 'preview') && graphIsActive(job)
+    )
+  )
+  const active = computed(() => activeJobs.value.length > 0)
   const busy = computed(
     () => saving.value || starting.value || active.value || uncertain.value || configUncertain.value
   )
@@ -207,7 +212,7 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
       try {
         await waitForBackgroundObservation(ticket.signal, Math.min(1500 * 2 ** failures, 15_000))
         if (!needsSynchronization) {
-          for (const job of jobs.value.filter(graphIsActive)) {
+          for (const job of activeJobs.value) {
             const result = await api.getGraphJob(id, job.id, ticket.signal)
             if (!ticket.isCurrent() || id !== baseId.value) return
             merge(result)
@@ -296,8 +301,12 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
       }
     } catch (reason) {
       if (ticket.isCurrent() && !isAborted(reason)) {
-        error.value = errorMessage(reason)
-        const rejected = !confirming && isDefiniteRejection(reason)
+        // These conflicts are issued after the server checks for an existing request ID.
+        const conflict =
+          reason instanceof ApiError &&
+          reason.status === 409 &&
+          ['graph_version_conflict', 'graph_busy'].includes(reason.code)
+        const rejected = conflict || (!confirming && isDefiniteRejection(reason))
         if (rejected) {
           pending.value = null
           uncertain.value = false
@@ -306,6 +315,8 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
           uncertain.value = true
           persist()
         }
+        if (conflict) await load()
+        if (ticket.isCurrent()) error.value = errorMessage(reason)
       }
     } finally {
       if (ticket.isCurrent()) starting.value = false

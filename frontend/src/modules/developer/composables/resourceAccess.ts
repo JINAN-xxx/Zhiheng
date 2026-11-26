@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, reactive, ref, watch } from 'vue'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import {
   bindResource,
@@ -33,6 +33,7 @@ export function useResourceAccess(
   const loading = ref(false),
     candidateLoading = ref(false),
     saving = ref(false)
+  let loadedAt = 0
   const error = ref(''),
     formError = ref(''),
     candidateError = ref('')
@@ -57,6 +58,7 @@ export function useResourceAccess(
       const result = await getResourceAccess(id, ticket.signal)
       if (!ticket.isCurrent() || application().applicationId !== id) return
       snapshot.value = result
+      loadedAt = Date.now()
       update(result.applicationVersion, {
         sourceFileLimit: result.sourceFileLimit,
         sourceByteLimit: result.sourceByteLimit
@@ -236,10 +238,20 @@ export function useResourceAccess(
       closeBinding()
       closeQuota()
       snapshot.value = null
+      loadedAt = 0
       void load()
     },
     { immediate: true }
   )
+  onActivated(() => {
+    if (!loading.value && !saving.value && Date.now() - loadedAt >= 30_000) void load()
+  })
+  onDeactivated(() => {
+    bindingOpen.value = false
+    quotaOpen.value = false
+    discovery.replace()
+    candidateLoading.value = false
+  })
   onBeforeUnmount(() => {
     read.dispose()
     discovery.dispose()

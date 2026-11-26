@@ -97,7 +97,7 @@ Agent 使用官方 LangChain `create_agent`、`TodoListMiddleware`、`Summarizat
 
 `load_skill` 返回 `revision_id`、`workspace_path`、`files` 和 `instructions`，不创建沙盒或自动执行脚本。首次使用文件执行工具时，全部已选技能文件放入 `inputs/skills/{slug}/` 只读目录；路径相对于 `/workspace`。按需加载相应工具组后，可用 `read_file` 读文本，用 `run_python` 或 `execute` 运行脚本。中间文件放在 `working/`，正式成果放在 `outputs/` 后发布。创建后续沙盒时从本轮固定修订重建技能目录，不要求重放检查点中已完成的 `load_skill`。
 
-每个包继续受上传 10 MiB、展开 30 MiB、200 个文件的限制，全部资料与工作现场还受沙盒总大小限制。支持某种技能不代表额外语言运行时、外部网络或第三方凭据已就绪：Python/Shell 沿用现有隔离环境和依赖规则，第三方系统访问仍需另行提供受控工具或 MCP。
+每个包继续受上传 10 MiB、展开 30 MiB、200 个文件的限制，全部资料与工作现场还受沙盒总大小限制。Python/Shell 沿用现有隔离环境和依赖规则。工作空间通过已开放的工具访问外部资源。
 
 ## 按需工具加载
 

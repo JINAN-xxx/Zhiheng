@@ -1,7 +1,19 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -43,6 +55,11 @@ class AssistantConversation(Base):
     __tablename__ = 'assistant_conversations'
     __table_args__ = (
         UniqueConstraint('owner_id', 'create_request_id', name='uq_assistant_conversation_request'),
+        CheckConstraint(
+            '(api_application_id IS NULL AND api_user IS NULL) OR '
+            '(api_application_id IS NOT NULL AND api_user IS NOT NULL AND NOT plaza)',
+            name='ck_assistant_conversation_api_owner',
+        ),
         Index(
             'ix_assistant_checkpoint_cleanup',
             'checkpoint_cleanup_after',
@@ -54,6 +71,8 @@ class AssistantConversation(Base):
     owner_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), index=True)
     agent_id: Mapped[UUID] = mapped_column(ForeignKey('agents.id'), index=True)
     create_request_id: Mapped[UUID] = mapped_column(Uuid)
+    api_application_id: Mapped[UUID | None] = mapped_column(ForeignKey('developer_applications.id'))
+    api_user: Mapped[str | None] = mapped_column(String(128))
     plaza: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
     config: Mapped[dict[str, object]] = mapped_column(JSONB)
     skills: Mapped[dict[str, object]] = mapped_column(JSONB)

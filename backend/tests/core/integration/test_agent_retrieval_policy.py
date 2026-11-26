@@ -172,7 +172,7 @@ async def test_final_limit_reaches_ranker_and_bounds_the_combined_library_result
                 json={'name': 'Knowledge limit', 'scopes': ['agents:invoke'], 'agent_ids': [agent['id']]},
             )
         ).json()
-        headers = {'Authorization': 'Bearer ' + key['api_key']}
+        headers = {'Authorization': 'Bearer ' + key['api_key'], 'Prefer': 'respond-async'}
     body = {'messages': [{'role': 'user', 'content': 'service port'}], 'client_request_id': str(uuid4())}
     if entry == 'work':
         work = await task(admin, agent, goal='service port')
@@ -188,7 +188,11 @@ async def test_final_limit_reaches_ranker_and_bounds_the_combined_library_result
             json={'message': 'service port', 'client_request_id': str(uuid4())},
         )
     elif entry == 'public':
-        response = await admin.post(f'/v1/agents/{agent["id"]}/chat/completions', json=body, headers=headers)
+        response = await admin.post(
+            f'/v1/agents/{agent["id"]}/chat/completions',
+            json={'user': 'test-user', 'message': 'service port', 'client_request_id': body['client_request_id']},
+            headers=headers,
+        )
     else:
         response = await admin.post(f'/api/agents/{agent["id"]}/preview', json=body)
     assert response.status_code == 202, response.text

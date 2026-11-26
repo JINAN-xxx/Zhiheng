@@ -1,5 +1,4 @@
 import type { WorkExecutionState, WorkInput, WorkTask } from './api/index.ts'
-import type { ToolSelection } from '../mcp/public.ts'
 
 export function pendingWorkInputs(task: Pick<WorkTask, 'inputs' | 'messages'>): WorkInput[] {
   const sent = new Set(task.messages.flatMap((message) => message.inputFileIds ?? []))
@@ -10,7 +9,6 @@ export interface WorkDraft {
   goal: string
   modelId: string | null
   skillSlugs: string[]
-  mcpTool?: ToolSelection
 }
 export interface CreateIntent extends WorkDraft {
   clientRequestId: string
@@ -22,7 +20,6 @@ export interface WorkIntent {
   clientRequestId: string
   fileIds: string[]
   resume: boolean
-  mcpTool?: ToolSelection
 }
 const sameSet = (left: string[], right: string[]) =>
   JSON.stringify([...left].sort()) === JSON.stringify([...right].sort())
@@ -37,7 +34,6 @@ export function nextWorkIntent(
     previous.taskId === input.taskId &&
     previous.message === message &&
     previous.resume === input.resume &&
-    JSON.stringify(previous.mcpTool) === JSON.stringify(input.mcpTool) &&
     sameSet(previous.fileIds, input.fileIds)
   )
     return previous
@@ -53,15 +49,13 @@ export function nextCreateIntent(
     previous &&
     previous.goal === goal &&
     previous.modelId === draft.modelId &&
-    sameSet(previous.skillSlugs, draft.skillSlugs) &&
-    JSON.stringify(previous.mcpTool) === JSON.stringify(draft.mcpTool)
+    sameSet(previous.skillSlugs, draft.skillSlugs)
   )
     return previous
   return {
     goal,
     modelId: draft.modelId,
     skillSlugs: [...draft.skillSlugs],
-    ...(draft.mcpTool ? { mcpTool: draft.mcpTool } : {}),
     clientRequestId: createId()
   }
 }

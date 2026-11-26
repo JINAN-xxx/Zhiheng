@@ -24,6 +24,7 @@ class AgentSettings(BaseModel):
     summary_output_tokens: PositiveCounter
     summary_input_tokens: PositiveCounter
     input_budget: PositiveCounter | None
+    reference_message_index: Counter | None = None
 
     @field_validator('version', mode='before')
     @classmethod
@@ -45,4 +46,6 @@ class AgentSettings(BaseModel):
             raise ValueError('Retained tokens must be below the summary trigger')
         if self.incremental and self.base_checkpoint_id is None:
             raise ValueError('Incremental chat requires a checkpoint')
+        if self.reference_message_index is not None and self.reference_message_index >= len(self.message_ids) - 1:
+            raise ValueError('Transient reference must precede the current message')
         return self

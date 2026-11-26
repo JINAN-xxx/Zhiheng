@@ -6,9 +6,9 @@ import {
   Dropdown as ADropdown,
   Input as AInput,
   Menu as AMenu,
-  MenuItem as AMenuItem,
-  message
+  MenuItem as AMenuItem
 } from 'ant-design-vue'
+import { feedback as message } from '../../../shared/feedback.ts'
 import { ApiOutlined, CopyOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import type { ChatModel, ModelConnection } from '../api/index.ts'

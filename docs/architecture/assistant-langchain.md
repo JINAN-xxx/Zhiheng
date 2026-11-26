@@ -17,9 +17,9 @@
 | 私人正式会话 | 最新已启用配置，服务端会话记忆 | 持续的业务有效 checkpoint，每轮只追加本轮问题 |
 | 广场正式会话 | 当轮已上架配置，会话与用量归调用者 | 会话归属和记忆隔离规则与私人会话一致 |
 | 配置调试 | 最新已保存配置，页面提交 messages | 每请求独立，checkpointer=None |
-| 外部 API | 最新已启用配置，调用方提交 messages | 每请求独立，checkpointer=None |
+| 外部 API | 最新已启用配置，调用方提交本轮消息 | 持续 checkpoint，按应用、助手和用户隔离 |
 
-调试和 API 不使用 agent_id、用户或 Key 作为隐式共享记忆线程。其客户端继续负责请求历史，保留既有 96 条消息和 64 KiB 输入协议上限。助手 history_rounds 设置已退役，不能在 Worker 中再选择一次历史。
+调试客户端提交请求历史。API 调用方传入本轮消息，后续使用响应中的 `conversation_id` 续聊。Worker 复用正式会话的记忆和摘要，校验 API 会话归属及原 Key 权限。
 
 外部 API 继续检查应用、原 Key、`agents:invoke`、对象授权与当前权限。助手启停沿用 `agents:publish`，广场管理使用 `agents:plaza_publish` 并检查助手所有权。跨所有者只允许超级管理员下架。
 

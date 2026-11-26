@@ -24,8 +24,9 @@ EXAMPLE_BODIES: dict[tuple[str, str], dict[str, Any]] = {
     ('chat', 'chat'): {'model': MODEL, 'messages': [{'role': 'user', 'content': '你好'}], 'stream': True},
     ('embeddings', 'embeddings'): {'model': MODEL, 'input': ['资料文本']},
     ('rerank', 'rerank'): {'model': MODEL, 'query': '问题', 'documents': ['候选文本']},
-    ('agents', 'chat'): {'messages': [{'role': 'user', 'content': '你好'}], 'stream': True},
+    ('agents', 'chat'): {'user': 'customer-123', 'message': '你好', 'stream': True},
     ('agents', 'cancel_preparation'): {},
+    ('mcp', 'streamable_http'): {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list', 'params': {}},
 }
 
 TITLES = {

@@ -63,6 +63,7 @@ class DeveloperKey(Base):
     status: Mapped[str] = mapped_column(String(16), default='active')
     model_ids: Mapped[list[str]] = mapped_column(JSONB)
     agent_ids: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default='[]')
+    mcp_tool_ids: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default='[]')
     resource_grants: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list, server_default='[]')
     create_resource_kinds: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default='[]')
     grant_family_id: Mapped[UUID | None] = mapped_column(Uuid)

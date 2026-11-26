@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { feedback } from '../../../shared/feedback.ts'
 import { createRequestId } from '../../../shared/requestId.ts'
 import { computed, onBeforeUnmount, reactive, ref, useId, watch } from 'vue'
 import {
@@ -27,8 +28,7 @@ const cards = ref<CreditRate[]>([]),
   loading = ref(false),
   saving = ref(false),
   error = ref(''),
-  ready = ref(false),
-  saved = ref(false)
+  ready = ref(false)
 const scope = new RequestScope(),
   mutation = new RequestScope()
 let retryBody: CreditRateCreate | null = null
@@ -49,12 +49,6 @@ function fillCurrent(): void {
   if (currentRate.value)
     Object.assign(form, normalizeCreditPrices(currentRate.value), { reason: '' })
 }
-watch(
-  () => JSON.stringify(form),
-  () => {
-    if (!saving.value) saved.value = false
-  }
-)
 const columns = [
   { title: '版本', dataIndex: 'version', key: 'version', width: 70 },
   { title: '积分价格', key: 'price' },
@@ -67,7 +61,6 @@ watch(
     mutation.replace()
     saving.value = false
     ready.value = false
-    saved.value = false
     error.value = ''
     cards.value = []
     Object.assign(form, {
@@ -138,7 +131,7 @@ async function save(): Promise<void> {
     fillCurrent()
     retryBody = null
     retrySignature = ''
-    saved.value = true
+    feedback.success('价格已保存')
     loading.value = true
     try {
       const history = await getCreditRates(id, refresh.signal)
@@ -214,7 +207,6 @@ async function save(): Promise<void> {
         <template v-if="!searchUnit">缓存命中部分按缓存单价计费。</template>保存后仅影响新的调用。
       </p>
       <div v-if="canWrite" class="rate-submit">
-        <span v-if="saved" class="rate-saved" role="status">价格已保存</span>
         <AButton type="primary" :loading="saving" :disabled="disabled || !changed" @click="save"
           >保存价格</AButton
         >
@@ -308,10 +300,6 @@ async function save(): Promise<void> {
   justify-content: flex-end;
   align-items: center;
   gap: 12px;
-}
-.rate-saved {
-  color: var(--color-text-secondary);
-  font-size: 12px;
 }
 @media (max-width: 640px) {
   .rate-grid {

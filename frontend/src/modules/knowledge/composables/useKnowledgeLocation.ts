@@ -1,4 +1,4 @@
-import { message } from 'ant-design-vue'
+import { feedback as message } from '../../../shared/feedback.ts'
 import { computed, ref } from 'vue'
 import type { Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'

@@ -236,7 +236,6 @@ class _ExecutionContext:
     tool_available: ToolAvailability | None = None
     recovered_toolsets: frozenset[str] = frozenset()
     retried_unavailable_tool: bool = False
-    mcp_enabled: bool = False
 
 
 class _ExecutionMiddleware(AgentMiddleware[Any, Any, Any]):
@@ -246,8 +245,6 @@ class _ExecutionMiddleware(AgentMiddleware[Any, Any, Any]):
 
     def _active_names(self, state: Mapping[str, Any]) -> set[str]:
         names = set(WORK_CORE_TOOLS)
-        if self.context.mcp_enabled:
-            names.add('query_mcp')
         loaded = state.get('loaded_toolsets', {})
         for group in self.context.allowed_toolsets:
             if group in self.context.recovered_toolsets or (isinstance(loaded, dict) and loaded.get(group) is True):
@@ -695,7 +692,6 @@ class WorkspaceKernel:
         trigger_tokens: int,
         keep_tokens: int,
         web_search_enabled: bool = False,
-        mcp_enabled: bool = False,
         write_tool_context: ToolContextWriter | None = None,
         execution_instructions: str = '',
         tool_available: ToolAvailability | None = None,
@@ -708,12 +704,7 @@ class WorkspaceKernel:
         )
         context.execution_instructions = execution_instructions
         context.tool_available = tool_available
-        context.mcp_enabled = mcp_enabled
         tools = _tools(context, code_enabled, web_search_enabled)
-        if mcp_enabled:
-            tools.append(
-                _tool(context, 'query_mcp', '调用用户为本轮任务选定的 MCP 查询工具，使用用户已确认的参数。', {})
-            )
         context.available_tools = (*tools, *planning.tools)
         model = _WorkspaceModel(invoke_model)
         execution = _ExecutionMiddleware(context)

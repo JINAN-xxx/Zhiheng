@@ -1,9 +1,12 @@
-from datetime import timedelta
+import asyncio
+import threading
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.core.integration.test_knowledge_failures import ready_base
 from tests.core.provider import ProviderServer
@@ -16,6 +19,7 @@ from zhiheng.modules.knowledge.graph.contracts import (
 )
 from zhiheng.modules.knowledge.graph.orm import GraphAttempt, GraphConfiguration, GraphGeneration, GraphJob
 from zhiheng.modules.knowledge.graph.service import GraphService
+from zhiheng.modules.knowledge.public import GraphClaim, VectorIOControl
 from zhiheng.modules.models.orm import ConnectionRevision
 from zhiheng.modules.models.public import ModelMessage
 from zhiheng.shared.errors import AppError
@@ -118,6 +122,60 @@ async def test_graph_keeps_known_failure_when_cleanup_outlives_the_lease(
         assert job is not None and job.status == 'failed'
         assert job.error == {'code': 'graph_model_truncated', 'message': '图谱抽取或摘要被输出上限截断'}
         assert attempt is not None and attempt.status == 'interrupted'
+        assert config is not None and config.active_revision is None
+
+
+async def test_local_sdk_drain_keeps_the_model_failure_visible(
+    admin: httpx.AsyncClient,
+    app: FastAPI,
+    provider: ProviderServer,
+    model_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    container = app.state.container
+    base = await ready_base(admin, app, provider)
+    base_id = UUID(base['id'])
+    async with container.database.sessions.begin() as session:
+        owner = await container.identity.principal_for_user(session, UUID(base['owner_id']))
+        await container.graph.patch(
+            session, owner, base_id, GraphConfigPatch(expected_version=0, llm_model_id=UUID(model_id))
+        )
+        queued = await container.graph.admit(
+            session, owner, base_id, GraphBuildRequest(expected_version=1, client_request_id=uuid4()), 'build'
+        )
+
+    renewed = asyncio.Event()
+    renew = container.graph_store.renew
+
+    async def observe_renewal(session: AsyncSession, claim: GraphClaim) -> datetime:
+        lease = await renew(session, claim)
+        renewed.set()
+        return lease
+
+    async def fail(
+        _claim: GraphClaim,
+        control: VectorIOControl,
+        writer_stopped: threading.Event,
+        sdk_entered: threading.Event,
+    ) -> None:
+        sdk_entered.set()
+        control.cancel()
+        await asyncio.wait_for(renewed.wait(), 3)
+        await asyncio.sleep(0.05)
+        writer_stopped.set()
+        raise AppError('provider_rejected', '模型服务拒绝请求', 502)
+
+    monkeypatch.setattr(container.graph_store, 'renew', observe_renewal)
+    monkeypatch.setattr(container.graph_jobs, '_execute', fail)
+    await container.graph_jobs.execute(queued.id)
+
+    async with container.database.sessions() as session:
+        job = await session.get(GraphJob, queued.id)
+        attempt = await session.get(GraphAttempt, queued.attempt_id)
+        config = await session.get(GraphConfiguration, base_id)
+        assert job is not None and job.status == 'failed'
+        assert job.error == {'code': 'provider_rejected', 'message': '模型服务拒绝请求'}
+        assert attempt is not None and attempt.writer_stopped
         assert config is not None and config.active_revision is None
 
 

@@ -86,7 +86,7 @@ class KeyMeteringPolicy:
             or (app.status != 'active' or not app.platform_enabled)
             or app.deleted_at is not None
             or (
-                source not in {'agent_invocation', 'knowledge_embedding', 'knowledge_retrieval'}
+                source not in {'agent_invocation', 'agent_summary', 'knowledge_embedding', 'knowledge_retrieval'}
                 and str(model_id) not in key.model_ids
             )
             or not await self._identity.is_active(session, app.owner_id)

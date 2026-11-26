@@ -9,6 +9,7 @@ import {
   Modal as AModal
 } from 'ant-design-vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { feedback } from '../../../shared/feedback.ts'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
 import { identity, canUseCapability } from '../../identity/public.ts'
 import { deleteTask, updateTask } from '../api/index.ts'
@@ -85,7 +86,11 @@ async function updateRecordedTask(
     if (context.isCurrent() && state.currentTask?.taskId === task.taskId)
       await state.loadTask(task.taskId)
   } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+    if (context.isCurrent() && !isAborted(reason)) {
+      const message = errorMessage(reason)
+      if (rename.value) error.value = message
+      else feedback.error(message)
+    }
   } finally {
     if (context.isCurrent()) working.value = false
   }
@@ -106,7 +111,7 @@ async function remove(task: WorkSummary): Promise<void> {
     if (route.query.taskId === task.taskId) await router.push('/work')
     await state.loadTasks()
   } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+    if (context.isCurrent() && !isAborted(reason)) feedback.error(errorMessage(reason))
   } finally {
     if (context.isCurrent()) working.value = false
   }
@@ -131,7 +136,6 @@ function canManageTask(task: WorkSummary, action: 'update' | 'delete' = 'update'
 }
 </script>
 <template>
-  <AAlert v-if="error && !rename" :message="error" type="error" show-icon />
   <RecentWorkTasks
     :tasks="state.tasks"
     :active-task-id="String(route.query.taskId ?? '')"

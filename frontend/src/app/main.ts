@@ -4,6 +4,7 @@ import '../shared/styles/console-tokens.css'
 import '../shared/styles/workspace.scss'
 import '../shared/styles/zhiheng.scss'
 import '../shared/styles.css'
+import '../shared/styles/feedback.css'
 import { clearAssistantPendingExcept } from '../modules/agents/public.ts'
 import {
   clearIdentity,

@@ -40,7 +40,7 @@
         type="error"
         show-icon
       />
-      <section v-if="skill.sourceType !== 'platform'" class="skill-markdown" aria-label="技能内容">
+      <section class="skill-markdown" aria-label="技能内容">
         <MarkdownRender
           :content="markdownContent || '暂无内容'"
           html-policy="safe"

@@ -79,6 +79,11 @@ class _AssistantRequestDependencies(_Dependencies):
     main_request: ModelRequest
 
 
+class _AssistantPublicDependencies(_AssistantRequestDependencies):
+    api_conversation_id: UUID | None = None
+    api_user: str | None = None
+
+
 class _WorkDependencies(_Dependencies):
     task_version: _Version
     member_config: dict[str, object]
@@ -93,7 +98,7 @@ _CONTRACTS: dict[str, tuple[type[_RetrievalInput], type[_Dependencies]]] = {
     'knowledge_query': (_StandaloneInput, _Dependencies),
     'agent_chat': (_AssistantTurnInput, _AssistantTurnDependencies),
     'agent_preview': (_AssistantRequest, _AssistantRequestDependencies),
-    'agent_invocation': (_AssistantRequest, _AssistantRequestDependencies),
+    'agent_invocation': (_AssistantRequest, _AssistantPublicDependencies),
     'work_turn': (_WorkTurnInput, _WorkDependencies),
 }
 

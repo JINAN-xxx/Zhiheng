@@ -1,5 +1,6 @@
+import asyncio
 from typing import Annotated
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -8,20 +9,48 @@ from fastapi.security import HTTPBearer
 from zhiheng.api.common.auth import bearer
 from zhiheng.api.common.contracts import EmptyRequest
 from zhiheng.api.common.dependencies import ContainerDependency
-from zhiheng.api.inference.responses import CompletionResponse
+from zhiheng.api.inference.responses import AgentCompletionResponse
 from zhiheng.api.inference.streaming import chat_response
-from zhiheng.modules.agents.public import AgentPublicRequest, PreviewRequest
-from zhiheng.modules.knowledge.public import PreparationInfo
+from zhiheng.modules.agents.public import AgentPublicRequest
+from zhiheng.modules.knowledge.public import PREPARATION_TERMINAL, PreparationInfo
 from zhiheng.shared.errors import AppError
-from zhiheng.shared.principal import Principal
 
 router = APIRouter(prefix='/v1/agents', tags=['public agents'], dependencies=[Depends(HTTPBearer(auto_error=False))])
+PREPARATION_WAIT_SECONDS = 30
+PREPARATION_POLL_SECONDS = 0.5
+
+
+async def wait_for_preparation(
+    container: ContainerDependency, request: Request, token: str, agent_id: UUID, current: PreparationInfo
+) -> PreparationInfo:
+    try:
+        async with asyncio.timeout(PREPARATION_WAIT_SECONDS):
+            while current.run is None and current.status not in PREPARATION_TERMINAL:
+                if await request.is_disconnected():
+                    raise asyncio.CancelledError
+                await asyncio.sleep(PREPARATION_POLL_SECONDS)
+                current = await container.agent_preparations.get(token, agent_id, current.id)
+    except TimeoutError:
+        raise AppError('knowledge_preparation_wait_timeout', '等待知识库准备超时，请使用原请求编号重试', 504) from None
+    return current
+
+
+class AgentPreparationResponse(PreparationInfo):
+    conversation_id: UUID
+
+
+def preparation_receipt(prepared: PreparationInfo, conversation_id: UUID) -> JSONResponse:
+    headers = {'Retry-After': '1', 'Preference-Applied': 'respond-async'}
+    if prepared.polling_url:
+        headers['Location'] = prepared.polling_url
+    content = AgentPreparationResponse(**prepared.model_dump(), conversation_id=conversation_id)
+    return JSONResponse(content.model_dump(mode='json'), status_code=202, headers=headers)
 
 
 @router.post(
     '/{agent_id}/chat/completions',
     response_model=None,
-    responses={200: {'model': CompletionResponse}, 202: {'model': PreparationInfo}},
+    responses={200: {'model': AgentCompletionResponse}, 202: {'model': AgentPreparationResponse}},
     openapi_extra={'x-required-scopes': ['agents:invoke'], 'x-streaming': True},
 )
 async def chat(
@@ -33,7 +62,7 @@ async def chat(
         str | None,
         Header(
             alias='Idempotency-Key',
-            description='稳定的请求 UUID。同一问题的准备、轮询后续调及重试须复用；关联知识库时必须提供本头或 client_request_id。',
+            description='本回合的稳定 UUID。发送本头或 client_request_id，重试沿用原编号。',
         ),
     ] = None,
 ) -> JSONResponse | StreamingResponse:
@@ -49,45 +78,37 @@ async def chat(
         if request_id is not None and request_id != header_id:
             raise AppError('idempotency_conflict', 'Request identifiers differ', 409)
         request_id = header_id
-    async with container.database.sessions.begin() as session:
-        identity = await container.keys.authenticate(session, token, lock=True)
-        await container.keys.authorize_agent(session, identity, agent_id, lock=True)
-        principal = Principal(identity.owner_id, '', False)
-        agent = await container.agents.require_enabled_application(
-            session, principal, agent_id, identity.application_id
+    if request_id is None:
+        raise AppError('stable_request_id_required', '请提供 client_request_id 或 Idempotency-Key', 422)
+    prepared, identity, conversation_id = await container.agent_runs.submit_public(token, agent_id, body, request_id)
+    if isinstance(prepared, PreparationInfo):
+        respond_async = any(
+            preference.partition(';')[0].strip().lower() == 'respond-async'
+            for preference in request.headers.get('prefer', '').split(',')
         )
-        if request_id is None:
-            await container.models.bindings.resolve(session, agent.model_id)
-    if agent.knowledge_base_ids or request_id is not None:
-        if request_id is None:
+        if respond_async:
+            return preparation_receipt(prepared, conversation_id)
+        status = await wait_for_preparation(container, request, token, agent_id, prepared)
+        if status.run is None:
+            error = status.error
             raise AppError(
-                'stable_request_id_required', 'Knowledge calls require client_request_id or Idempotency-Key', 422
+                error.code if error else 'knowledge_preparation_failed',
+                error.message if error else '知识库准备未完成',
+                409 if status.status == 'cancelled' else 504 if error and error.code == 'knowledge_timeout' else 502,
             )
-        prepared = await container.agent_runs.prepare_knowledge_agent(
-            principal,
-            agent_id,
-            PreviewRequest(messages=body.messages, client_request_id=request_id),
-            identity,
-            response_stream=body.stream,
-        )
-        if isinstance(prepared, PreparationInfo):
-            return JSONResponse(prepared.model_dump(mode='json'), status_code=202)
-        async with container.database.sessions() as session:
-            model_id = await container.knowledge_preparation.authorize_public_run(
-                session, identity, agent_id, prepared.id
-            )
-        return await chat_response(
-            container, request, prepared, identity.owner_id, token, model_id, stream=body.stream, scope='agents:invoke'
-        )
-    async with container.database.sessions.begin() as session:
-        run, identity, model_id = await container.agent_runs.public(
-            session,
-            token,
-            agent_id,
-            PreviewRequest(messages=body.messages, client_request_id=uuid4()),
-        )
+        prepared = status.run
+    async with container.database.sessions() as session:
+        model_id = await container.knowledge_preparation.authorize_public_run(session, identity, agent_id, prepared.id)
     return await chat_response(
-        container, request, run, identity.owner_id, token, model_id, stream=body.stream, scope='agents:invoke'
+        container,
+        request,
+        prepared,
+        identity.owner_id,
+        token,
+        model_id,
+        stream=body.stream,
+        scope='agents:invoke',
+        conversation_id=conversation_id,
     )
 
 

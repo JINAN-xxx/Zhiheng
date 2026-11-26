@@ -36,7 +36,8 @@
         </div>
         <pre class="api-code">{{ requestExample }}</pre>
         <p class="api-contract">
-          使用已授权此智能体的应用 Bearer 密钥。多轮对话通过 messages 传入，stream 为 true 时返回
+          使用已授权此智能体的应用 Bearer 密钥。首轮提交 user、本轮 message 和
+          client_request_id，续聊带上返回的 conversation_id 并沿用同一个 user。stream 为 true 时返回
           SSE。
         </p>
         <template v-if="knowledgeIds.length">
@@ -44,9 +45,9 @@
             知识检索计入此密钥的配额与用量。重试时复用原 client_request_id。
           </p>
           <p class="api-contract">
-            有知识库时，首次调用可能返回 HTTP 202。请使用同一 Bearer 密钥轮询
-            polling_url；不要重复创建请求。状态为 admitted 时，可用同一 client_request_id 重发原
-            POST，获取原 JSON/SSE 结果。关闭连接只停止查看，明确取消使用返回状态地址的 /cancel。
+            有知识库时，默认等待准备最多 30 秒，完成后通过同一次请求返回 JSON 或 SSE。等待超时返回
+            HTTP 504，可用同一密钥和原请求编号重试。需要异步回执时发送 Prefer: respond-async。 收到
+            HTTP 202 后，用同一密钥查询 polling_url，run.status 为 completed 时读取 run.text。
           </p>
           <pre class="api-code">{{ preparationExample }}</pre>
         </template>
@@ -165,9 +166,9 @@ import {
   Input as AInput,
   Popconfirm as APopconfirm,
   Tag as ATag,
-  Tooltip as ATooltip,
-  message
+  Tooltip as ATooltip
 } from 'ant-design-vue'
+import { feedback as message } from '../../../shared/feedback.ts'
 import { CloseOutlined, CopyOutlined, DeleteOutlined, KeyOutlined } from '@ant-design/icons-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
@@ -194,11 +195,11 @@ const requestExample = computed(
   () => `curl '${endpoint.value}' \
   -H 'Authorization: Bearer <DEVELOPER_API_KEY>' \
   -H 'Content-Type: application/json' \
-  -d '${JSON.stringify({ messages: [{ role: 'user', content: '你好' }], stream: false, ...(knowledgeIds.value.length ? { client_request_id: '<STABLE_REQUEST_UUID>' } : {}) }, null, 2)}'`
+  -d '${JSON.stringify({ user: 'customer-123', message: '你好', stream: false, client_request_id: '<STABLE_REQUEST_UUID>' }, null, 2)}'`
 )
 const preparationExample = computed(
   () =>
-    `HTTP 202\n{\n  "kind": "knowledge_preparation",\n  "id": "<PREPARATION_ID>",\n  "status": "waiting_models",\n  "polling_url": "/v1/agents/${props.agent?.agentId ?? '<AGENT_ID>'}/preparations/<PREPARATION_ID>"\n}\n\ncurl '<ORIGIN>/v1/agents/${props.agent?.agentId ?? '<AGENT_ID>'}/preparations/<PREPARATION_ID>' \\\n  -H 'Authorization: Bearer <DEVELOPER_API_KEY>'`
+    `HTTP 202\n{\n  "kind": "knowledge_preparation",\n  "id": "<PREPARATION_ID>",\n  "conversation_id": "<CONVERSATION_ID>",\n  "status": "waiting_models",\n  "polling_url": "/v1/agents/${props.agent?.agentId ?? '<AGENT_ID>'}/preparations/<PREPARATION_ID>"\n}\n\ncurl '<ORIGIN>/v1/agents/${props.agent?.agentId ?? '<AGENT_ID>'}/preparations/<PREPARATION_ID>' \\\n  -H 'Authorization: Bearer <DEVELOPER_API_KEY>'`
 )
 const keyForm = reactive({ keyName: '', monthlyPointsLimit: '' }),
   keys = ref<DeveloperKey[]>([]),

@@ -173,6 +173,17 @@ class PreviewRequest(AgentInput):
     client_request_id: UUID
 
 
-class AgentPublicRequest(AgentInput):
+class AgentPublicRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    user: str = Field(min_length=1, max_length=128)
+    message: str = Field(min_length=1, max_length=MAX_HISTORY_BYTES)
+    conversation_id: UUID | None = None
     stream: bool = Field(default=False, strict=True)
     client_request_id: UUID | None = None
+
+    @field_validator('user', 'message')
+    @classmethod
+    def nonblank(cls, value: str) -> str:
+        if not value.strip() or len(safe_text(value).encode('utf-8')) > MAX_HISTORY_BYTES:
+            raise ValueError('Nonempty UTF-8 text within the input limit is required')
+        return value

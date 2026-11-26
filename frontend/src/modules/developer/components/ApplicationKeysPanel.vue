@@ -64,6 +64,7 @@
               item.createResourceKinds.map((kind) => resourceCreationLabels[kind]).join('、')
             }}</small
           >
+          <small v-if="item.mcpToolIds?.length">MCP 工具：{{ item.mcpToolIds.length }} 个</small>
           <small>最近使用：{{ formatTime(item.lastUsedAt) }}</small>
           <small>到期时间：{{ item.expiresAt ? formatTime(item.expiresAt) : '无到期时间' }}</small>
           <small v-if="item.status === 'retiring'" class="key-row__retiring"
@@ -93,12 +94,14 @@
           >
         </div>
         <WorkspaceMoreMenu
-          v-if="actions.length"
+          v-if="active && actions.length"
           :items="
             actions.filter(
               (action) =>
                 action.command === 'delete' ||
-                (action.command === 'rotate' && item.status === 'active') ||
+                (action.command === 'rotate' &&
+                  item.status === 'active' &&
+                  item.canRotate !== false) ||
                 (action.command === 'revoke' &&
                   (item.status === 'active' || item.status === 'retiring'))
             )
@@ -111,6 +114,7 @@
 </template>
 
 <script setup lang="ts">
+import { onActivated, onDeactivated, ref } from 'vue'
 import { formatPoints } from '../../billing/public.ts'
 import { Button as AButton } from 'ant-design-vue'
 import { KeyOutlined } from '@ant-design/icons-vue'
@@ -149,6 +153,13 @@ const props = withDefaults(
   }
 )
 defineEmits<{ create: []; retry: []; command: [command: string, item: DeveloperKey] }>()
+const active = ref(true)
+onActivated(() => {
+  active.value = true
+})
+onDeactivated(() => {
+  active.value = false
+})
 function scopeLabel(scope: string): string {
   return props.scopeCatalog?.definitions.find((item) => item.scope === scope)?.label ?? scope
 }

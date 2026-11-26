@@ -59,13 +59,20 @@
           </div>
         </div>
         <a-alert
-          v-if="taskNotice && !managementOpen"
+          v-if="taskNotice && taskNotice.id !== dismissedNotice && !managementOpen"
+          :key="taskNotice.id"
           class="graph-task-notice"
           :type="taskNotice.type"
           :message="taskNotice.title"
           :description="taskNotice.detail"
+          :closable="taskNotice.retryable"
           show-icon
-        />
+          @close="dismissedNotice = taskNotice.id"
+        >
+          <template v-if="taskNotice.retryable && canEdit" #action>
+            <a-button size="small" @click="openRetry(taskNotice.operation)">查看并重试</a-button>
+          </template>
+        </a-alert>
         <form v-if="readable && !usingPreview" class="graph-controls" @submit.prevent="load">
           <a-select
             :value="form.node_label"
@@ -160,7 +167,7 @@
             <p v-if="canEdit && available && !buildLoading && !chatOptions.length">
               暂无已启用的对话模型，请联系管理员配置。
             </p>
-            <a-collapse ghost class="graph-advanced">
+            <a-collapse v-model:active-key="advancedKeys" ghost class="graph-advanced">
               <a-collapse-panel key="advanced" header="高级选项">
                 <a-form layout="vertical" :disabled="controlsDisabled">
                   <a-form-item label="推理策略">
@@ -263,7 +270,7 @@
                       :loading="starting || previewBuilding"
                       :disabled="controlsDisabled || !configForm.llm_model_id"
                       @click="previewGraph"
-                      >{{ previewBuilding ? '试构建中' : '试构建' }}</a-button
+                      >{{ previewAction }}</a-button
                     >
                     <a-button
                       v-if="preview?.cancel_allowed"
@@ -428,7 +435,9 @@ const defaults: GraphConfigInput = {
 const configForm = reactive({ ...defaults }),
   formError = ref(''),
   previewDocumentId = ref<string>()
-const managementOpen = ref(false)
+const managementOpen = ref(false),
+  advancedKeys = ref<string | number | (string | number)[]>([]),
+  dismissedNotice = ref('')
 const building = computed(() => graphIsActive(props.job)),
   previewBuilding = computed(() => graphIsActive(props.preview))
 const controlsDisabled = computed(
@@ -453,6 +462,9 @@ const dirty = computed(
 const progress = computed(() => graphProgress(props.job))
 const buildTitle = computed(() => graphStatusLabel(props.job)),
   previewTitle = computed(() => graphStatusLabel(props.preview, true))
+function canRetry(job: GraphJob | null): boolean {
+  return !!job && ['failed', 'interrupted', 'cancelled'].includes(job.status)
+}
 const taskNotice = computed(() => {
   const task = building.value
     ? props.job
@@ -460,13 +472,23 @@ const taskNotice = computed(() => {
       ? props.preview
       : props.jobs?.find(({ operation }) => operation === 'build' || operation === 'preview')
   if (!task) return null
+  const { id, operation } = task
   const title = graphStatusLabel(task, task.operation === 'preview')
-  if (task.error) return { title, detail: task.error.message, type: 'error' as const }
+  if (task.error) {
+    return {
+      id,
+      operation,
+      title,
+      detail: task.error.message,
+      type: task.status === 'cancelled' ? ('info' as const) : ('error' as const),
+      retryable: canRetry(task)
+    }
+  }
   if (!graphIsActive(task)) return null
   const total = task.progress.total_chunks
   const processed = task.progress.extracted_chunks
   const detail = total && processed !== null ? `已提取 ${processed} / ${total} 个切片` : ''
-  return { title, detail, type: 'info' as const }
+  return { id, operation, title, detail, type: 'info' as const, retryable: false }
 })
 const previewResult = computed<GraphPreviewResult | null>(() =>
   props.preview?.result && 'seconds' in props.preview.result ? props.preview.result : null
@@ -478,9 +500,15 @@ const usingPreview = computed(
 const displayGraph = computed(() =>
   usingPreview.value ? chartGraph(previewResult.value?.graph ?? null) : props.graph
 )
-const buildAction = computed(() =>
-  building.value ? '构建中' : dirty.value ? '保存并构建图谱' : '构建图谱'
-)
+const buildAction = computed(() => {
+  if (building.value) return '构建中'
+  if (dirty.value) return '保存并构建图谱'
+  return canRetry(props.job) ? '重试构建' : '构建图谱'
+})
+const previewAction = computed(() => {
+  if (previewBuilding.value) return '试构建中'
+  return canRetry(props.preview) ? '重试试构建' : '试构建'
+})
 const strategyOptions = computed(() =>
   [
     { value: 'auto', label: '自动适配（推荐）' },
@@ -553,6 +581,10 @@ function previewGraph(): void {
   const value = currentConfig()
   if (value) emit('preview', { config: value, document_id: previewDocumentId.value ?? null })
 }
+function openRetry(operation: GraphJob['operation']): void {
+  managementOpen.value = true
+  if (operation === 'preview') advancedKeys.value = ['advanced']
+}
 function startBuild(rebuild = false): void {
   const value = currentConfig()
   if (value) emit('start', { config: value, rebuild })
@@ -564,6 +596,8 @@ watch(
   () => props.database.id,
   () => {
     managementOpen.value = false
+    advancedKeys.value = []
+    dismissedNotice.value = ''
     previewDocumentId.value = undefined
     canvasMode.value = 'published'
     Object.assign(form, { node_label: '*', max_depth: 2, max_nodes: 100 })

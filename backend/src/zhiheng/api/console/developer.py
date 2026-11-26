@@ -24,6 +24,7 @@ from zhiheng.modules.developer.public import (
 from zhiheng.modules.developer.public import (
     scope_catalog as capabilities,
 )
+from zhiheng.modules.mcp.public import PublicationCreate, PublicationView
 from zhiheng.shared.platform_permissions import require_capability
 
 router = APIRouter(prefix='/api/developer/applications', tags=['developer'])
@@ -146,6 +147,44 @@ async def issue(
         return key
 
 
+@router.get('/{application_id}/mcp-publications')
+async def mcp_publications(
+    application_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
+) -> list[PublicationView]:
+    principal.require_any_permission('platform:mcp:use', 'platform:mcp:publish')
+    await container.applications.require(session, principal, application_id)
+    return await container.mcp.publications.for_application(session, application_id)
+
+
+@router.post('/{application_id}/mcp-publications', status_code=201)
+async def publish_mcp_tool(
+    application_id: UUID,
+    body: PublicationCreate,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> PublicationView:
+    require_capability(principal, 'mcp', 'publish')
+    async with session.begin():
+        await container.applications.require_active_owned(session, principal.id, application_id)
+        return await container.mcp.publications.publish(session, application_id, body)
+
+
+@router.delete('/{application_id}/mcp-publications/{publication_id}', status_code=204)
+async def withdraw_mcp_tool(
+    application_id: UUID,
+    publication_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> Response:
+    require_capability(principal, 'mcp', 'publish')
+    async with session.begin():
+        await container.applications.require(session, principal, application_id, lock=True)
+        await container.mcp.publications.withdraw(session, application_id, publication_id)
+    return Response(status_code=204)
+
+
 @router.get('/{application_id}/keys/{key_id}')
 async def key(
     application_id: UUID,
@@ -154,7 +193,7 @@ async def key(
     principal: PrincipalDependency,
     session: SessionDependency,
 ) -> KeyInfo:
-    return container.keys.info(await container.keys.require(session, principal, application_id, key_id))
+    return await container.keys.detail(session, principal, application_id, key_id)
 
 
 @router.post('/{application_id}/keys/{key_id}/rotate', status_code=201)

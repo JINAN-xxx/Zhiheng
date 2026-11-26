@@ -1,6 +1,7 @@
 """Successful inference wire contracts shared by OpenAPI and protocol checks."""
 
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -30,6 +31,10 @@ class CompletionResponse(BaseModel):
     model: str = Field(description='平台模型 UUID')
     choices: list[CompletionChoice] = Field(description='回复候选；包含序号、回复正文和结束原因')
     usage: TokenUsage = Field(description='供应商确认的 Token 用量；未知字段为 null')
+
+
+class AgentCompletionResponse(CompletionResponse):
+    conversation_id: UUID = Field(description='续聊时提交的会话标识')
 
 
 class EmbeddingItem(BaseModel):

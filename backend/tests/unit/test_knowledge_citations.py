@@ -45,10 +45,11 @@ def test_numbered_sources_share_the_same_context_for_assistants_and_other_caller
     source = hit()
     prepared = PreparedKnowledge(intent_id=uuid4(), bases=[], hits=[source])
     context = prepared.context()
-    assistant = prepared.agent_prefix()
+    rules, assistant = prepared.agent_prefix()
     messages = prepared.apply_context((ModelMessage('user', '查询接口'),))
     assert context in assistant.content and context in messages[-1].content
     assert assistant.role == 'system' and messages[-1].content.endswith('查询接口')
+    assert context not in rules.content
     assert '资料不足' in messages[0].content
 
 

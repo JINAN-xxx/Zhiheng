@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 import httpx
 from pydantic import ValidationError
 
-from zhiheng.modules.mcp.contracts import ToolDefinition
+from zhiheng.modules.mcp.contracts import ExternalToolResult, ToolDefinition
 from zhiheng.shared.errors import AppError
 
 PROTOCOLS = ('2025-06-18', '2025-03-26')
@@ -213,10 +213,7 @@ class McpTransport:
         return await self._bounded(self._call(endpoint, token, tool, arguments))
 
     async def _call(self, endpoint: str, token: str | None, tool: ToolDefinition, arguments: dict[str, object]) -> str:
-        async with self.session(endpoint, token) as client:
-            if (await self._list_tools(client)).get(tool.name) != tool:
-                raise AppError('mcp_definition_changed', 'MCP 工具定义已变化，请管理员同步并重新审核', 409)
-            result = await client.request('tools/call', {'name': tool.name, 'arguments': arguments})
+        result = await self._invoke(endpoint, token, tool, arguments)
         if result.get('isError') is True:
             raise AppError('mcp_tool_failed', 'MCP 工具返回执行失败，请核对参数或服务状态', 502)
         content = result.get('content')
@@ -238,6 +235,27 @@ class McpTransport:
             text = text.replace(token, '[凭据已隐藏]')
         return text if len(text) <= MAX_RESULT_CHARS else text[:MAX_RESULT_CHARS] + '\n[结果已截断]'
 
+    async def invoke(
+        self, endpoint: str, token: str | None, tool: ToolDefinition, arguments: dict[str, object]
+    ) -> ExternalToolResult:
+        result = await self._bounded(self._invoke(endpoint, token, tool, arguments))
+        try:
+            reply = ExternalToolResult.model_validate(result)
+            encoded = json.dumps(reply.model_dump(exclude_none=True, by_alias=True), allow_nan=False)
+        except (ValidationError, ValueError, RecursionError):
+            raise protocol_error() from None
+        if token and json.dumps(token)[1:-1] in encoded:
+            raise protocol_error()
+        return reply
+
+    async def _invoke(
+        self, endpoint: str, token: str | None, tool: ToolDefinition, arguments: dict[str, object]
+    ) -> dict[str, object]:
+        async with self.session(endpoint, token) as client:
+            if (await self._list_tools(client)).get(tool.name) != tool:
+                raise AppError('mcp_definition_changed', 'MCP 工具定义已变化，请管理员同步并重新审核', 409)
+            return await client.request('tools/call', {'name': tool.name, 'arguments': arguments})
+
     @staticmethod
     async def _bounded(operation: Awaitable[T]) -> T:
         try:
@@ -250,13 +268,15 @@ def _tool_definition(item: object) -> ToolDefinition:
     if not isinstance(item, dict):
         raise protocol_error()
     hints = item.get('annotations')
+    hint = hints.get('readOnlyHint') if isinstance(hints, dict) else None
     try:
         return ToolDefinition.model_validate(
             {
                 'name': item.get('name'),
                 'description': item.get('description', ''),
                 'input_schema': item.get('inputSchema'),
-                'read_only': isinstance(hints, dict) and hints.get('readOnlyHint') is True,
+                'read_only': hint is True,
+                'read_only_hint': hint if type(hint) is bool else None,
             }
         )
     except (ValidationError, ValueError, RecursionError):

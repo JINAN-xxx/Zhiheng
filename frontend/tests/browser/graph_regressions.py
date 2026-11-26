@@ -308,6 +308,65 @@ class GraphRegressions(KnowledgeUIRegressions):
         await expect(self.page.get_by_text('图谱构建失败',exact=True)).to_be_visible()
         await expect(self.page.get_by_text('最新构建失败',exact=True)).to_be_visible()
 
+    async def test_failed_preview_can_retry_while_graph_query_is_running(self):
+        failed = job('failed', 'preview', 3)
+        failed.update(result=None, error={'code': 'index_operation_cancelled', 'message': '索引操作已取消'})
+        query = job('running', 'query')
+        query['id'] = 'graph-query-1'
+        self.graph_job = failed
+
+        async def list_jobs(route):
+            await route.fulfill(json=[self.graph_job, query])
+
+        async def retry(route):
+            self.graph_posts.append(('/preview', route.request.post_data_json))
+            self.graph_job = {**job('completed', 'preview'), 'id': 'graph-preview-retry'}
+            await route.fulfill(status=202, json=self.graph_job)
+
+        await self.page.route('**/api/knowledge/bases/base-1/graph/jobs', list_jobs)
+        await self.page.route('**/api/knowledge/bases/base-1/graph/preview', retry)
+        await self.page.goto(self.origin + '/knowledge/base-1/graph')
+        await self.page.get_by_role('button', name='查看并重试', exact=True).click()
+        button = self.page.get_by_role('button', name='重试试构建', exact=True)
+        await expect(button).to_be_enabled()
+        await button.click()
+        await expect(self.page.get_by_role('heading', name='试构建完成', exact=True)).to_be_visible()
+        await expect(self.page.get_by_text('索引操作已取消', exact=True)).to_have_count(0)
+        self.assertEqual([path for path, _ in self.graph_posts], ['/preview'])
+        self.assertTrue(self.graph_posts[0][1]['client_request_id'])
+
+    async def test_confirmed_version_conflict_releases_request_for_a_fresh_build(self):
+        submissions = []
+
+        async def build(route):
+            submissions.append(route.request.post_data_json)
+            if len(submissions) == 1:
+                await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '提交待确认'}})
+            elif len(submissions) == 2:
+                self.config['version'] = 2
+                await route.fulfill(status=409, json={
+                    'error': {'code': 'graph_version_conflict', 'message': '图谱配置已更新'},
+                })
+            else:
+                self.graph_admitted = True
+                self.graph_job = job()
+                await route.fulfill(status=202, json=self.graph_job)
+
+        await self.page.route('**/api/knowledge/bases/base-1/graph/build', build)
+        await self.page.goto(self.origin + '/knowledge/base-1/graph')
+        await self.open_graph_management()
+        start = self.page.get_by_role('button', name='构建图谱', exact=True)
+        await start.click()
+        confirm = self.page.get_by_role('button', name='确认原请求或恢复查看', exact=True)
+        await confirm.click()
+        await expect(confirm).to_have_count(0)
+        await expect(start).to_be_enabled()
+        await start.click()
+        await expect(self.page.get_by_text('图谱构建完成', exact=True)).to_be_visible()
+        self.assertEqual(submissions[0], submissions[1])
+        self.assertEqual(submissions[2]['expected_version'], 2)
+        self.assertNotEqual(submissions[0]['client_request_id'], submissions[2]['client_request_id'])
+
 
     async def test_owner_can_open_graph_setup_before_first_build(self):
         self.base.update(enable_knowledge_graph=False,llm_model_id=None,graph_status='disabled')

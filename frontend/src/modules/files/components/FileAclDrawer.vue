@@ -9,9 +9,9 @@ import {
   RadioGroup as ARadioGroup,
   Select as ASelect,
   Tag as ATag,
-  Tooltip as ATooltip,
-  message as toast
+  Tooltip as ATooltip
 } from 'ant-design-vue'
+import { feedback as toast } from '../../../shared/feedback.ts'
 import type { TableColumnsType } from 'ant-design-vue'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons-vue'
 import ResourceDrawer from '../../../shared/components/ResourceDrawer.vue'

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { feedback } from '../../../shared/feedback.ts'
 import { createRequestId } from '../../../shared/requestId.ts'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue'
 import {
@@ -54,9 +55,7 @@ const accounts = ref<CreditAccount[]>([]),
   page = ref(1),
   search = ref('')
 const loading = ref(false),
-  error = ref(''),
-  actionError = ref(''),
-  success = ref('')
+  error = ref('')
 const selectedAccount = ref<CreditAccount | null>(null)
 const activity = ref<InstanceType<typeof CreditActivity> | null>(null)
 const scope = new RequestScope(),
@@ -153,8 +152,6 @@ watch(
     accounts.value = []
     summary.value = null
     hasData.value = false
-    success.value = ''
-    actionError.value = ''
     void load()
   }
 )
@@ -211,12 +208,11 @@ async function open(
   if (!ownerId) return
   const ticket = authorization.replace()
   authorizing.value = true
-  actionError.value = ''
   try {
     const allowed = await confirmCreditAccess(kind === 'account' ? 'configure' : 'adjust', ownerId)
     if (!ticket.isCurrent()) return
     if (!allowed) {
-      actionError.value = '当前账号没有此积分管理操作权限'
+      feedback.error('当前账号没有此积分管理操作权限')
       return
     }
     target.value = account
@@ -226,9 +222,8 @@ async function open(
     formError.value = ''
     retryBody = null
     retrySignature = ''
-    success.value = ''
   } catch (reason) {
-    if (ticket.isCurrent() && !isAborted(reason)) actionError.value = errorMessage(reason)
+    if (ticket.isCurrent() && !isAborted(reason)) feedback.error(errorMessage(reason))
   } finally {
     if (ticket.isCurrent()) authorizing.value = false
   }
@@ -289,7 +284,7 @@ async function save(): Promise<void> {
       selectedAccount.value = { ...account, ...result }
     if (!ticket.isCurrent() || !context.isCurrent()) return
     dialog.value = null
-    success.value = `${dialogTitleFor(kind, account)}成功`
+    feedback.success(`${dialogTitleFor(kind, account)}成功`)
     await load()
   } catch (reason) {
     if (ticket.isCurrent() && !isAborted(reason))
@@ -320,22 +315,6 @@ function searchAccounts(): void {
 </script>
 <template>
   <section class="credits-panel" aria-label="平台积分">
-    <AAlert
-      v-if="actionError"
-      :message="actionError"
-      type="error"
-      show-icon
-      class="credit-notice"
-    />
-    <AAlert
-      v-if="success"
-      :message="success"
-      type="success"
-      show-icon
-      closable
-      class="credit-notice"
-      @close="success = ''"
-    />
     <AAlert
       v-if="error && hasData"
       :message="`刷新失败，显示上次数据：${error}`"

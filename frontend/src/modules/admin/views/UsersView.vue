@@ -8,12 +8,12 @@ import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import {
   Modal,
   Tag as ATag,
-  message,
   Input as AInput,
   InputPassword as AInputPassword,
   Textarea as ATextarea,
   Select as ASelect
 } from 'ant-design-vue'
+import { feedback as message } from '../../../shared/feedback.ts'
 import { identity } from '../../identity/public.ts'
 import { hasAdminPermission } from '../access.ts'
 import { decodeUser, getUserOptions, resetPassword } from '../api/index.ts'

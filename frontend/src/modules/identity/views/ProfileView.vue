@@ -9,9 +9,9 @@ import {
   FormItem as AFormItem,
   Input as AInput,
   InputPassword as AInputPassword,
-  Tag as ATag,
-  message
+  Tag as ATag
 } from 'ant-design-vue'
+import { feedback as message } from '../../../shared/feedback.ts'
 import WorkspacePage from '../../../shared/components/WorkspacePage.vue'
 import WorkspacePanel from '../../../shared/components/WorkspacePanel.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'

@@ -78,6 +78,7 @@ class KeyCreate(StrictRequest):
     name: str = Field(min_length=1, max_length=80)
     model_ids: list[UUID] = Field(default_factory=list, max_length=256)
     agent_ids: list[UUID] = Field(default_factory=list, max_length=256)
+    mcp_tool_ids: list[UUID] = Field(default_factory=list, max_length=100)
     resource_grants: list[KeyResourceGrant] = Field(default_factory=list, max_length=256)
     create_resource_kinds: tuple[ResourceKind, ...] = Field(default=(), max_length=3)
     scopes: tuple[Scope, ...]
@@ -92,6 +93,8 @@ class KeyCreate(StrictRequest):
             raise ValueError('Direct model access requires both models:invoke and selected models')
         if ('agents:invoke' in self.scopes) != bool(self.agent_ids):
             raise ValueError('Agent access requires both agents:invoke and selected agents')
+        if ('mcp:invoke' in self.scopes) != bool(self.mcp_tool_ids):
+            raise ValueError('MCP access requires both mcp:invoke and selected tools')
         objects = {(grant.kind, grant.resource_id) for grant in self.resource_grants}
         if len(objects) != len(self.resource_grants) or len(set(self.create_resource_kinds)) != len(
             self.create_resource_kinds
@@ -104,7 +107,7 @@ class KeyCreate(StrictRequest):
         possible = required | {resource_scope(kind, 'read') for kind in self.create_resource_kinds}
         if 'knowledge_base' in self.create_resource_kinds:
             possible.add('knowledge:query')
-        if set(self.scopes).difference({'models:invoke', 'agents:invoke'}, possible):
+        if set(self.scopes).difference({'models:invoke', 'agents:invoke', 'mcp:invoke'}, possible):
             raise ValueError('Select an existing resource or permission to create resources of this kind')
         if 'skill' in self.create_resource_kinds and 'files:read' not in self.scopes:
             raise ValueError('Importing skills requires read access to the uploaded package')
@@ -125,7 +128,7 @@ class KeyCreate(StrictRequest):
     def clean_name(cls, value: str) -> str:
         return ApplicationCreate.clean_name(value)
 
-    @field_validator('model_ids', 'agent_ids')
+    @field_validator('model_ids', 'agent_ids', 'mcp_tool_ids')
     @classmethod
     def unique_models(cls, value: list[UUID]) -> list[UUID]:
         if len(set(value)) != len(value):
@@ -157,8 +160,10 @@ class KeyInfo(BaseModel):
     name: str
     prefix: str
     status: str
+    can_rotate: bool = False
     model_ids: list[UUID]
     agent_ids: list[UUID]
+    mcp_tool_ids: list[UUID] = Field(default_factory=list)
     resource_grants: list[KeyResourceGrant]
     create_resource_kinds: tuple[ResourceKind, ...]
     scopes: tuple[Scope, ...]

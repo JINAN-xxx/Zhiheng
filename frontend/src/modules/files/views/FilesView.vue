@@ -1,5 +1,6 @@
 <!-- Adapted from original system/file/index.vue, MIT licensed. -->
 <script setup lang="ts">
+import { feedback } from '../../../shared/feedback.ts'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
@@ -65,8 +66,7 @@ const files = ref<ManagedFile[]>(saved?.hasData ? saved.files : []),
 const total = ref(saved?.hasData ? saved.total : 0),
   loading = ref(!saved?.hasData),
   error = ref(''),
-  busyIds = ref<string[]>([]),
-  notice = ref('')
+  busyIds = ref<string[]>([])
 const detail = ref<InstanceType<typeof FileDetailDialog> | null>(null),
   references = ref<InstanceType<typeof FileReferenceDrawer> | null>(null),
   acl = ref<InstanceType<typeof FileAclDrawer> | null>(null),
@@ -200,7 +200,7 @@ async function download(file: ManagedFile): Promise<void> {
     const blob = await downloadFile(file.fileId, context.signal)
     if (context.isCurrent()) saveBlob(blob, file.originalName)
   } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+    if (context.isCurrent() && !isAborted(reason)) feedback.error(errorMessage(reason))
   } finally {
     if (context.isCurrent()) busyIds.value = busyIds.value.filter((id) => id !== file.fileId)
   }
@@ -243,13 +243,13 @@ async function change(action: 'delete' | 'restore' | 'purge', row?: ManagedFile)
       changed += 1
       selected.value = selected.value.filter((selected) => selected.fileId !== file.fileId)
     }
-    notice.value = `已${labels[action]}${changed}个文件`
+    feedback.success(`已${labels[action]}${changed}个文件`)
     await load()
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason)) {
       const message = `已处理${changed}项；${errorMessage(reason)}。请刷新核对剩余文件状态。`
       await load()
-      error.value = message
+      if (context.isCurrent()) feedback.error({ content: message, duration: 8 })
     }
   } finally {
     if (context.isCurrent()) busyIds.value = []
@@ -321,14 +321,7 @@ onBeforeUnmount(() => {
         </template>
       </a-dropdown>
     </template>
-    <a-alert v-if="error" :message="error" type="error" show-icon class="mb8" /><a-alert
-      v-if="notice"
-      :message="notice"
-      type="success"
-      closable
-      class="mb8"
-      @close="notice = ''"
-    />
+    <a-alert v-if="error" :message="error" type="error" show-icon class="mb8" />
     <FileStatistics v-if="stats || loading" :stats="stats" :loading="loading" />
     <section class="file-resources" aria-label="文件资源">
       <div class="file-resources__heading">

@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import { message as notice } from 'ant-design-vue'
+import { feedback as notice } from '../../../shared/feedback.ts'
 import { canUseCapability, hasAnyPermission, identity } from '../../identity/public.ts'
 
 export function useModelAccess() {

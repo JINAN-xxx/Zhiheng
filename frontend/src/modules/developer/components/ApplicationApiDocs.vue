@@ -8,36 +8,36 @@
     </WorkspaceToolbar>
     <div class="api-docs-layout">
       <nav class="api-docs-nav" aria-label="API 文档目录">
-        <div class="api-docs-nav__title">接口说明</div>
-        <ApiDocsNavigation
-          :nodes="navigation"
-          :selected-id="selectedId"
-          :expanded-ids="expandedIds"
-          @select="selectSection"
-          @toggle="toggleFolder"
-        />
+        <a-radio-group
+          v-model:value="group"
+          class="api-docs-nav__groups"
+          aria-label="API 分组"
+          button-style="solid"
+        >
+          <a-radio-button value="resources">资源 API</a-radio-button>
+          <a-radio-button value="inference">推理 API</a-radio-button>
+        </a-radio-group>
+        <div class="api-docs-nav__sections">
+          <ApiDocsNavigation
+            :nodes="navigation"
+            :selected-id="selectedId"
+            :expanded-ids="expandedIds"
+            @select="selectSection"
+            @toggle="toggleFolder"
+          />
+        </div>
       </nav>
-      <div class="api-docs-content">
+      <div ref="content" class="api-docs-content">
         <section id="api-overview" class="api-docs-intro api-doc-anchor">
-          <h2>平台 API</h2>
-          <p>
-            资源接口管理文件、个人知识库与个人技能；推理接口提供模型和智能体调用。两组均使用 Bearer
-            访问密钥。
-          </p>
-          <a-radio-group v-model:value="group" button-style="solid"
-            ><a-radio-button value="resources">资源 API</a-radio-button
-            ><a-radio-button value="inference">推理 API</a-radio-button></a-radio-group
-          >
+          <h2>{{ group === 'resources' ? '资源 API' : '推理 API' }} 接入</h2>
+          <p v-if="group === 'resources'">文件、知识库和个人技能接口使用 Bearer 访问密钥。</p>
+          <p v-else>使用 Bearer 访问密钥调用模型、智能体及已授权的 MCP 工具。</p>
           <div class="api-doc-code">
             <div class="api-doc-code__title">
               <span>当前调用地址</span><button @click="copy(apiBase)">复制地址</button>
             </div>
             <pre>{{ apiBase }}</pre>
           </div>
-          <p>
-            目录、字段和唯一调用示例均由当前服务的 OpenAPI 规范加载，资源接口统一使用平台资源 API
-            v1。
-          </p>
         </section>
         <section id="api-auth" class="api-doc-section">
           <h2>鉴权与授权</h2>
@@ -50,28 +50,32 @@
           </p>
         </section>
         <section id="api-protocol" class="api-doc-section">
-          <h2>版本、幂等与操作</h2>
-          <p class="api-doc-description">
+          <h2>{{ group === 'resources' ? '版本、幂等与操作' : '推理错误与重试' }}</h2>
+          <p v-if="group === 'resources'" class="api-doc-description">
             资源操作可省略 Idempotency-Key，每次按新提交处理，不保证跨请求去重。需要可靠重试时，
             为同一业务操作生成一次 UUID 并在重试时复用；相同应用、操作和键的内容不同返回 409。
             请求身份永久保留，响应快照保留 24 小时，过期重放返回 409 和当前允许的原结果引用；
             operation GET 可长期读取，仍复核当前 Scope 与 ACL。
           </p>
-          <p class="api-doc-description">
+          <p v-if="group === 'resources'" class="api-doc-description">
             资源文件的元数据、内容下载和变更响应使用同一文件强版本 ETag，可原样用于 If-Match；缺少为
             428，陈旧为 412。 技能不可变原包下载的 ETag 是内容 SHA256，不能用作技能状态版本。202
             表示已接纳，按 Location 查询 operation，建议至少间隔一秒。cancel_requested
             只表示取消意图，partially_succeeded 仍须检查失败项。
           </p>
-          <p class="api-doc-description">
+          <p v-if="group === 'resources'" class="api-doc-description">
             列表使用 items / next_cursor / has_more，默认 20、最多 100。资源错误为 error.code /
             message / details / request_id，响应带 X-Request-ID；429 按 Retry-After 等待。下载支持单
             Range 与 Content-Range。X-Request-ID 仅用于追踪，资源 id
             用于后续访问，均不能代替重试键。
           </p>
-          <p class="api-doc-description">
+          <p v-if="group === 'resources'" class="api-doc-description">
             异步结果以 operation 或运行的终态为准。资源 API 接纳的知识任务继续使用所属 Key
             查询返回的 operation 地址，控制台 Cookie 和原生任务 ID 不能替代该入口。
+          </p>
+          <p v-else class="api-doc-description">
+            模型和智能体接口的错误响应包含 <code>error.code</code> 与 <code>error.message</code>。
+            MCP 方法错误使用 JSON-RPC <code>error</code>，请同时检查 HTTP 状态和响应正文。
           </p>
           <p class="api-doc-description">
             运行错误 execution_conflict / execution_unavailable
@@ -81,9 +85,9 @@
             unknown 时保留预占，先核对原结果，避免直接重发模型请求。 provider_insufficient_balance
             表示上游服务余额不足，请联系管理员处理，反复重试不能恢复额度。
           </p>
-          <pre>{{ resourceError }}</pre>
+          <pre v-if="group === 'resources'">{{ resourceError }}</pre>
         </section>
-        <section id="api-recipes" class="api-doc-section">
+        <section v-if="group === 'resources'" id="api-recipes" class="api-doc-section">
           <h2>资源接入顺序</h2>
           <p class="api-doc-description">
             先设置 API_KEY 和 FILE_PATH，无需手动生成请求 UUID。知识入库：上传文件 → 从响应取
@@ -105,6 +109,19 @@ export API_KEY='你的访问密钥'
 export FILE_PATH='./notes.txt'
 # If-Match 示例：export ETAG='"file-1"'</pre
           >
+        </section>
+        <section v-else id="api-recipes" class="api-doc-section">
+          <h2>模型接入顺序</h2>
+          <p class="api-doc-description">
+            在「开发接入」签发带 <code>models:invoke</code> 的 Key，并选中允许直调的模型。 用
+            <code>GET /v1/models</code> 查询该 Key 可用的模型，将返回的
+            <code>data[].id</code> 设为示例中的 <code>MODEL_ID</code>。
+          </p>
+          <p class="api-doc-description">
+            对话生成使用 <code>/v1/chat/completions</code>，向量生成使用
+            <code>/v1/embeddings</code>，文本重排使用 <code>/v1/rerank</code>。 每个接口的字段和
+            curl 示例见目录中的「模型调用」。
+          </p>
         </section>
         <section v-if="group === 'inference'" id="api-streaming" class="api-doc-section">
           <h2>流式调用</h2>
@@ -199,9 +216,9 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Button as AButton,
   RadioGroup as ARadioGroup,
-  RadioButton as ARadioButton,
-  message
+  RadioButton as ARadioButton
 } from 'ant-design-vue'
+import { feedback as message } from '../../../shared/feedback.ts'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
@@ -224,6 +241,7 @@ const documents = ref<ApiDocument[]>([]),
   selectedId = ref('api-overview'),
   expandedIds = ref<string[]>(['guide'])
 const scope = new RequestScope()
+const content = ref<HTMLElement | null>(null)
 const apiBase = computed(
   () => `${window.location.origin}${group.value === 'resources' ? '/api/v1' : '/v1'}`
 )
@@ -289,15 +307,17 @@ async function load(): Promise<void> {
     if (ticket.isCurrent()) {
       loading.value = false
       await nextTick()
-      if (ticket.isCurrent() && !error.value && window.location.hash)
-        document.getElementById(selectedId.value)?.scrollIntoView({ block: 'start' })
+      if (ticket.isCurrent() && !error.value) {
+        if (selectedId.value === 'api-overview') content.value?.scrollTo({ top: 0 })
+        else document.getElementById(selectedId.value)?.scrollIntoView({ block: 'start' })
+      }
     }
   }
 }
 watch(
   group,
   () => {
-    expandedIds.value = ['guide']
+    expandedIds.value = group.value === 'inference' ? ['models'] : ['guide']
     void load()
   },
   { immediate: true }
@@ -329,16 +349,26 @@ onBeforeUnmount(() => {
   margin: 0 var(--workspace-space-6) var(--workspace-space-6);
 }
 .api-docs-nav {
-  overflow-y: auto;
-  padding: 16px 8px;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  padding: 10px 8px 8px;
   border: 1px solid var(--gray-150);
   border-radius: 8px;
   background: var(--bg-container);
 }
-.api-docs-nav__title {
-  padding: 0 16px 10px;
-  color: var(--color-text-secondary);
-  font-size: var(--workspace-font-size-caption);
+.api-docs-nav__groups {
+  display: flex;
+  flex-shrink: 0;
+  margin: 0 2px 8px;
+}
+.api-docs-nav__groups :deep(.ant-radio-button-wrapper) {
+  flex: 1 1 0;
+  text-align: center;
+}
+.api-docs-nav__sections {
+  min-height: 0;
+  overflow-y: auto;
 }
 .api-docs-content {
   min-width: 0;
@@ -482,16 +512,10 @@ onBeforeUnmount(() => {
     margin: 0 16px 16px;
   }
   .api-docs-nav {
-    display: block;
-    min-height: 0;
     max-height: min(28dvh, 220px);
-    overflow: auto;
     border-right: 0;
     border-bottom: 1px solid var(--gray-150);
     padding: 8px;
-  }
-  .api-docs-nav__title {
-    display: none;
   }
   .api-docs-content {
     padding: 18px 16px 36px;

@@ -43,10 +43,15 @@ class DeveloperLayoutRegressions(DeveloperResourceRegressions):
     async def test_all_detail_tabs_can_be_clicked_on_a_small_phone(self):
         await self.page.set_viewport_size({'width': 320, 'height': 844})
         await self.open_details()
-        for label in ['访问密钥', '模型直调授权', '资源授权', '调用记录', '概览']:
+        for label in ['访问密钥', '模型直调授权', '资源授权', '调用记录', '请求诊断', '概览']:
             tab = self.page.get_by_role('tab', name=label, exact=True)
-            await expect(tab).to_be_in_viewport()
-            await tab.click()
+            try:
+                await expect(tab).to_be_in_viewport(timeout=500)
+            except AssertionError:
+                await self.page.locator('.detail-tabs .ant-tabs-nav-more').click()
+                await self.page.locator('.ant-tabs-dropdown').get_by_text(label, exact=True).click()
+            else:
+                await tab.click()
             await expect(tab).to_have_attribute('aria-selected', 'true')
         self.assertTrue(await self.page.evaluate(
             'document.documentElement.scrollWidth <= innerWidth'

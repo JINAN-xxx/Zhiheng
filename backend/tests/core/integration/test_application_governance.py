@@ -29,7 +29,7 @@ async def application(client: httpx.AsyncClient) -> dict:
 
 
 async def test_governance_lists_minimal_metadata_and_keeps_personal_routes_private(
-    admin: httpx.AsyncClient, app: FastAPI
+    admin: httpx.AsyncClient, app: FastAPI, model_id: str
 ) -> None:
     async with account(admin, app, *OWNER_PERMISSIONS) as (owner, _, user):
         owned = await application(owner)
@@ -44,7 +44,10 @@ async def test_governance_lists_minimal_metadata_and_keeps_personal_routes_priva
         for suffix in ['', '/keys', '/resource-access', '/resources']:
             assert (await admin.get(path + suffix)).status_code == 404
         assert (
-            await admin.post(path + '/keys', json={'name': 'Forbidden', 'scopes': ['files:read']})
+            await admin.post(
+                path + '/keys',
+                json={'name': 'Forbidden', 'scopes': ['models:invoke'], 'model_ids': [model_id]},
+            )
         ).status_code == 404
         assert (await admin.get('/api/developer/applications')).json()['total'] == 1
 
@@ -79,13 +82,16 @@ async def test_governance_is_super_admin_only_even_for_the_application_owner(
 async def test_platform_suspend_fences_keys_and_cannot_be_reenabled_by_owner(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: object
 ) -> None:
-    async with account(admin, app, *OWNER_PERMISSIONS) as (owner, _, _):
+    async with account(admin, app, *OWNER_PERMISSIONS, 'platform:developer:key_rotate') as (owner, _, _):
         owned = await application(owner)
         path = '/api/developer/applications/' + owned['id']
         issued = await owner.post(
             path + '/keys', json={'name': 'Client', 'model_ids': [model_id], 'scopes': ['models:invoke']}
         )
         assert issued.status_code == 201, issued.text
+        assert issued.json()['can_rotate'] is True
+        key_path = path + '/keys/' + issued.json()['id']
+        assert (await owner.get(key_path)).json()['can_rotate'] is True
         secret = issued.json()['api_key']
         suspended = await admin.patch(
             '/api/admin/applications/' + owned['id'] + '/state', json={'enabled': False, 'expected_version': 1}
@@ -95,6 +101,8 @@ async def test_platform_suspend_fences_keys_and_cannot_be_reenabled_by_owner(
         assert (await owner.post(path + '/enable', json={})).status_code == 409
         current = (await owner.get(path)).json()
         assert current['status'] == 'disabled' and not current['platform_enabled']
+        assert (await owner.get(key_path)).json()['can_rotate'] is False
+        assert (await owner.get(path + '/keys')).json()['items'][0]['can_rotate'] is False
         assert (
             await owner.post(
                 path + '/keys', json={'name': 'Cannot bypass', 'model_ids': [model_id], 'scopes': ['models:invoke']}

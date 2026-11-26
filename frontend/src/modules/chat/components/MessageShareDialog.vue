@@ -6,9 +6,9 @@ import {
   Checkbox as ACheckbox,
   Modal as AModal,
   Select as ASelect,
-  Spin as ASpin,
-  message as notice
+  Spin as ASpin
 } from 'ant-design-vue'
+import { feedback as notice } from '../../../shared/feedback.ts'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { copyText } from '../../../shared/clipboard.ts'
 import {

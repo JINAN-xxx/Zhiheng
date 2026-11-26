@@ -7,7 +7,7 @@ import {
   Modal as AModal
 } from 'ant-design-vue'
 import type { TableColumnsType } from 'ant-design-vue'
-import { RightOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import { SearchOutlined } from '@ant-design/icons-vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import { errorMessage, RequestScope } from '../../../shared/http.ts'
@@ -30,9 +30,10 @@ const filteredTools = computed(() => {
   return rows.value.filter((row) => (row.name + ' ' + row.serverName).toLowerCase().includes(query))
 })
 const columns: TableColumnsType<CatalogTool> = [
-  { key: 'name', title: '工具', width: '31%' },
-  { key: 'description', title: '用途' },
-  { key: 'parameters', title: '操作', align: 'right', width: 116 }
+  { key: 'name', title: '工具', dataIndex: 'name', width: 200 },
+  { key: 'server', title: '服务', dataIndex: 'serverName', width: 180 },
+  { key: 'description', title: '用途', dataIndex: 'description', ellipsis: true },
+  { key: 'parameters', title: '参数', width: 92 }
 ]
 async function reload() {
   const ticket = scope.replace()
@@ -77,45 +78,31 @@ onBeforeUnmount(() => scope.dispose())
       ><RefreshButton label="刷新工具" :loading="loading" @click="reload"
     /></template>
     <AAlert v-if="error" :message="error" type="error" show-icon />
-    <div class="catalog-toolbar">
+    <div class="catalog-search">
       <AInput
         v-model:value="filter"
-        class="catalog-search"
         allow-clear
         placeholder="搜索工具或服务"
         aria-label="搜索 MCP 工具"
         ><template #prefix><SearchOutlined /></template
       ></AInput>
-      <span class="catalog-count">{{ filteredTools.length }} 个工具</span>
     </div>
     <ResourceTable
-      class="catalog-table"
       :rows="filteredTools"
       :columns="columns"
       :row-key="(row: CatalogTool) => row.serverId + ':' + row.name"
       :loading="loading"
-      scroll-x="100%"
+      :scroll-x="790"
       :empty-text="rows.length ? '暂无匹配工具' : canReview ? '暂无同步工具' : '暂无可用工具'"
     >
       <template #bodyCell="{ column, record }">
-        <div v-if="column.key === 'name'" class="catalog-tool">
-          <strong>{{ record.name }}</strong>
-          <span>{{ record.serverName }}</span>
-        </div>
-        <span
-          v-else-if="column.key === 'description'"
-          class="catalog-description"
-          :title="record.description || undefined"
-          >{{ record.description || '—' }}</span
-        >
         <AButton
-          v-else-if="column.key === 'parameters'"
-          class="catalog-parameters"
+          v-if="column.key === 'parameters'"
           type="link"
           size="small"
           @click="selected = record"
         >
-          查看参数 <RightOutlined aria-hidden="true" />
+          查看
         </AButton>
       </template>
     </ResourceTable>
@@ -125,92 +112,19 @@ onBeforeUnmount(() => scope.dispose())
       :footer="null"
       @cancel="selected = null"
     >
-      <p v-if="selected" class="catalog-tool-meta">
-        {{ selected.serverName }} · {{ selected.readOnly ? '已声明只读' : '未声明只读' }}
-      </p>
       <pre class="schema-preview">{{ JSON.stringify(selected?.inputSchema, null, 2) }}</pre>
     </AModal>
   </McpPage>
 </template>
 <style scoped>
-.catalog-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--workspace-space-3);
-  margin-bottom: var(--workspace-space-3);
-}
 .catalog-search {
-  width: 292px;
-  min-width: 0;
-}
-.catalog-count {
-  flex-shrink: 0;
-  color: var(--workspace-text-secondary);
-  font-size: var(--workspace-font-size-helper);
-}
-.catalog-table :deep(.ant-table-content > table) {
-  table-layout: fixed;
-}
-.catalog-table :deep(.ant-table-thead > tr > th) {
-  padding: 6px 16px;
-  border-bottom-color: var(--workspace-border);
-  border-radius: 0;
-  background: var(--workspace-surface);
-  color: var(--workspace-text-secondary);
-}
-.catalog-table :deep(.ant-table-thead > tr > th::before) {
-  display: none;
-}
-.catalog-table :deep(.ant-table-tbody > tr > td) {
-  padding: 12px 16px;
-  border-bottom-color: var(--workspace-border);
-}
-.catalog-tool {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
-}
-.catalog-tool strong {
-  font-weight: var(--workspace-font-weight-semibold);
-}
-.catalog-tool span,
-.catalog-tool-meta {
-  color: var(--workspace-text-secondary);
-  font-size: var(--workspace-font-size-caption);
-}
-.catalog-description {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--workspace-text-secondary);
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-.catalog-parameters {
-  padding-inline: 0;
-}
-.catalog-parameters :deep(.anticon) {
-  font-size: 11px;
-}
-.catalog-tool-meta {
-  margin: 0 0 12px;
+  max-width: 320px;
+  margin: 12px 0;
 }
 .schema-preview {
   max-height: 55vh;
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-@media (max-width: 620px) {
-  .catalog-table :deep(.ant-table-thead > tr > th),
-  .catalog-table :deep(.ant-table-tbody > tr > td) {
-    padding-inline: 8px;
-  }
-  .catalog-parameters :deep(.anticon) {
-    display: none;
-  }
 }
 </style>

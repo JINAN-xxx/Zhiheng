@@ -79,7 +79,9 @@ async def test_inference_success_schemas_keep_json_sse_and_preparation_contracts
         if 'chat/completions' in path:
             assert 'text/event-stream' in operation['responses']['200']['content']
     agent = schema['paths']['/v1/agents/{agent_id}/chat/completions']['post']
-    assert agent['responses']['202']['content']['application/json']['schema']['$ref'].endswith('/PreparationInfo')
+    assert agent['responses']['202']['content']['application/json']['schema']['$ref'].endswith(
+        '/AgentPreparationResponse'
+    )
 
 
 async def test_real_json_chat_matches_the_declared_success_schema(

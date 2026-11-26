@@ -2,9 +2,10 @@
 
 import json
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 MAX_ARGUMENT_BYTES = 16_384
 MAX_SCHEMA_BYTES = 8192
@@ -35,11 +36,44 @@ class ToolGrant(ServerVersion):
     role_ids: list[UUID] = Field(max_length=50)
 
 
+class PublicationCreate(ServerVersion):
+    server_id: UUID
+    tool_name: str = Field(min_length=1, max_length=120)
+    name: str = Field(min_length=1, max_length=120, pattern=r'^[a-zA-Z0-9_.-]+$')
+    confirm_read_only: Literal[True]
+
+
+class PublicationView(BaseModel):
+    id: UUID
+    server_name: str
+    tool_name: str
+    name: str
+    available: bool
+
+
+class ExternalToolResult(BaseModel):
+    content: list[dict[str, object]]
+    structured_content: dict[str, object] | None = Field(default=None, alias='structuredContent')
+    is_error: bool = Field(default=False, alias='isError', strict=True)
+
+
 class ToolDefinition(BaseModel):
     name: str = Field(min_length=1, max_length=120, pattern=r'^[a-zA-Z0-9_.-]+$')
     description: str = Field(default='', max_length=2000)
     input_schema: dict[str, object]
     read_only: bool
+    read_only_hint: bool | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def restore_known_hint(cls, value: object) -> object:
+        if isinstance(value, dict) and value.get('read_only') is True and 'read_only_hint' not in value:
+            return {**value, 'read_only_hint': True}
+        return value
+
+    @property
+    def can_publish(self) -> bool:
+        return 'read_only_hint' in self.model_fields_set and self.read_only_hint is not False
 
     @field_validator('input_schema')
     @classmethod
@@ -103,7 +137,9 @@ class CallView(BaseModel):
     id: UUID
     tool_name: str
     caller_id: UUID
-    run_id: UUID
+    run_id: UUID | None
+    application_id: UUID | None
+    key_id: UUID | None
     status: str
     error_code: str | None
     duration_ms: int

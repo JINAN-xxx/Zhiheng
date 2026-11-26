@@ -105,7 +105,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
-import { message } from 'ant-design-vue'
+import { feedback as message } from '../../../shared/feedback.ts'
 import { CheckOutlined, CloseOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'

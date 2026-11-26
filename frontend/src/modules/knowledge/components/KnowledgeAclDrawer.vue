@@ -8,9 +8,9 @@ import {
   Checkbox as ACheckbox,
   Input as AInput,
   Modal as AModal,
-  Tag as ATag,
-  message
+  Tag as ATag
 } from 'ant-design-vue'
+import { feedback as message } from '../../../shared/feedback.ts'
 import { LinkOutlined, CopyOutlined } from '@ant-design/icons-vue'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'

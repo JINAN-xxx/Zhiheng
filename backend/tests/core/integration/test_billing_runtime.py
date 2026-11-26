@@ -557,7 +557,7 @@ async def test_public_agent_can_use_points_price_without_historical_money_rate(
             admin.post(
                 f'/v1/agents/{agent["id"]}/chat/completions',
                 headers={'Authorization': 'Bearer ' + key['api_key']},
-                json={'messages': [{'role': 'user', 'content': 'hello'}]},
+                json={'user': 'test-user', 'message': 'hello', 'client_request_id': str(uuid4())},
             )
         ),
     )

@@ -169,7 +169,12 @@ class Container:
         self.usage = UsageService(self.credits, self.metering)
         self.applications = ApplicationService()
         self.keys = KeyService(
-            self.applications, self.models, self.identity, self.usage_facts, self.agents.application_candidates
+            self.applications,
+            self.models,
+            self.identity,
+            self.usage_facts,
+            self.agents.application_candidates,
+            self.mcp.publications.candidate_ids,
         )
         self._configure_resource_access()
         self.developer_management = DeveloperManagementService(self.applications, self.keys, self.models)
@@ -296,6 +301,7 @@ class Container:
             input_tokens=settings.chat_context_input_tokens,
             timeout_seconds=settings.provider_total_timeout_seconds + 10,
             attachments=self.assistant_attachments,
+            usage_facts=self.usage_facts,
         )
         self.agent_runs.execution = self.assistant_agent
         self.assistant_conversations = AssistantConversationService(
@@ -361,7 +367,6 @@ class Container:
                 sandbox=self.sandbox,
                 reader=create_workspace_reader(),
                 web_search=create_web_search(settings),
-                mcp=self.mcp,
                 checkpoint_cleanup=create_workspace_checkpoint_cleanup(settings),
                 policy=WorkspacePolicy(
                     run_seconds=settings.sandbox_run_seconds,

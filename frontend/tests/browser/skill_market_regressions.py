@@ -61,6 +61,13 @@ class SkillMarketRegressions(DeveloperBoundary):
             else:
                 self.personal['platform_revision_id'] = None
                 await route.fulfill(status=204)
+        elif path.startswith('/api/skills/platform/'):
+            identifier = path.rsplit('/', 1)[1]
+            published = next(item for item in self.items if item['source'] == 'platform' and item['id'] == identifier)
+            await route.fulfill(json={
+                'skill': published,
+                'content': '# 已发布的操作说明\n\n整理资料并验证结论。\n\n## 交付检查\n\n逐项核对引用。',
+            })
         elif path.startswith('/api/skills/') and path.endswith('/content'):
             await route.fulfill(json={'content': '# 技能说明\n\n按目标梳理资料，保留事实与行动事项。'})
         elif path.startswith('/api/skills/'):
@@ -81,6 +88,8 @@ class SkillMarketRegressions(DeveloperBoundary):
         await expect(self.page.get_by_role('button', name='上传技能', exact=True)).to_have_count(0)
         await self.page.get_by_role('button', name='深度研究', exact=True).click()
         dialog = self.page.locator('.skill-detail-modal[role="dialog"]')
+        await expect(dialog.get_by_role('heading', name='已发布的操作说明', exact=True)).to_be_visible()
+        await expect(dialog.get_by_role('region', name='技能内容')).to_contain_text('逐项核对引用。')
         await expect(dialog.get_by_role('button', name='下架平台技能', exact=True)).to_be_visible()
         await expect(dialog.get_by_role('button', name='更多技能操作')).to_have_count(0)
         await expect(dialog.get_by_role('switch')).to_have_count(0)

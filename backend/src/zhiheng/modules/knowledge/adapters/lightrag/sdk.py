@@ -78,6 +78,7 @@ def _callbacks(
     main_loop: asyncio.AbstractEventLoop,
     control: VectorIOControl,
     dimension: int,
+    failures: list[Exception] | None = None,
 ) -> tuple[Callable[..., Awaitable[str]], Callable[..., Awaitable[Any]]]:
     async def callback(call: GraphSDKCall) -> object:
         remaining = control.remaining_operation()
@@ -86,7 +87,12 @@ def _callbacks(
             control.check_operation()
             return await model(call)
 
-        return await _model_bridge(invoke, main_loop, timeout=remaining)
+        try:
+            return await _model_bridge(invoke, main_loop, timeout=remaining)
+        except AppError as error:
+            if failures is not None and not failures:
+                failures.append(error)
+            raise
 
     async def llm(
         prompt: str,
@@ -186,7 +192,8 @@ def _rerank_callback(
         except Exception as error:
             # LightRAG catches Exception and falls back unconditionally. Retain a
             # fatal error to rethrow before its result crosses our application port.
-            failures.append(error)
+            if not failures:
+                failures.append(error)
             raise
         finally:
             diagnostics['rerank_milliseconds'] = int((monotonic() - started) * 1000)
@@ -261,11 +268,11 @@ class GraphSDK:
             raise AppError('knowledge_rerank_required', '图谱检索必须配置重排模型', 409)
         main_loop = asyncio.get_running_loop()
 
-        llm, embedding = _callbacks(model, main_loop, control, manifest.dimension)
+        model_failures: list[Exception] = []
+        llm, embedding = _callbacks(model, main_loop, control, manifest.dimension, model_failures)
         rerank_state: dict[str, Any] = {}
-        rerank_failures: list[Exception] = []
         rerank = (
-            _rerank_callback(model, main_loop, control, frozen, rerank_state, rerank_failures)
+            _rerank_callback(model, main_loop, control, frozen, rerank_state, model_failures)
             if operation == 'query' and request.get('_rerank_binding') is not None
             else None
         )
@@ -312,16 +319,21 @@ class GraphSDK:
                     rerank=rerank,
                 )
                 await resources.rag.initialize_storages()
-                result = await run_operation(
-                    resources.rag,
-                    operation,
-                    frozen,
-                    manifest,
-                    request,
-                    rerank_state=rerank_state,
-                )
-                if rerank_failures:
-                    raise rerank_failures[0]
+                try:
+                    result = await run_operation(
+                        resources.rag,
+                        operation,
+                        frozen,
+                        manifest,
+                        request,
+                        rerank_state=rerank_state,
+                    )
+                except Exception:
+                    if model_failures:
+                        raise model_failures[0] from None
+                    raise
+                if model_failures:
+                    raise model_failures[0]
                 resources.completed = True
                 return GraphSDKOutcome(result, {'workspace': manifest.workspace}, True)
 

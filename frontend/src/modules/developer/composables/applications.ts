@@ -3,7 +3,8 @@ import { copyText } from '../../../shared/clipboard.ts'
 import { monthlyPointsLimit } from '../../billing/public.ts'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message, Modal } from 'ant-design-vue'
+import { Modal } from 'ant-design-vue'
+import { feedback as message } from '../../../shared/feedback.ts'
 import type { FormInstance } from 'ant-design-vue'
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
@@ -37,6 +38,8 @@ import {
   resourceKinds,
   applyResourceVersion
 } from '../api/index.ts'
+import { listMcpPublications } from '../api/mcp.ts'
+import type { McpPublication } from '../api/mcp.ts'
 import type {
   Application,
   ApplicationUsage,
@@ -48,11 +51,12 @@ import type {
   ScopeCatalog
 } from '../api/index.ts'
 
-type Tab = 'overview' | 'keys' | 'models' | 'resources' | 'usage' | 'requests'
+type Tab = 'overview' | 'keys' | 'models' | 'resources' | 'mcp' | 'usage' | 'requests'
 const tabValue = (value: unknown): Tab =>
   value === 'keys' ||
   value === 'models' ||
   value === 'resources' ||
+  value === 'mcp' ||
   value === 'usage' ||
   value === 'requests'
     ? value
@@ -64,6 +68,7 @@ const defaultKeyForm = () => ({
   monthlyPointsLimit: '',
   modelIds: [] as string[],
   agentIds: [] as string[],
+  mcpToolIds: [] as string[],
   resourceActions: [] as string[],
   createKinds: [] as ResourceKind[],
   expiresAt: null as string | null,
@@ -109,6 +114,8 @@ export function useApplications() {
     models = ref<ChatModel[]>([]),
     usageRows = ref<ApplicationUsage[]>([])
   const agents = ref<{ id: string; name: string }[]>([])
+  const mcpTools = ref<McpPublication[]>([])
+  const mcpError = ref('')
   const resources = ref<BoundResource[]>([])
   const agentError = ref(''),
     resourceError = ref('')
@@ -138,6 +145,9 @@ export function useApplications() {
   const applicationForm = reactive({ applicationName: '' }),
     keyForm = reactive(defaultKeyForm())
   let keyResourceRpmEdited = false
+  const loadedAt = { keys: 0, models: 0, usage: 0 }
+  const detailEpoch = ref(0)
+  const isFresh = (time: number) => Date.now() - time < 30_000
   const editingApplication = ref<Application | null>(null),
     issuedKey = ref<IssuedKey | null>(null),
     pendingIssuedKey = ref<IssuedKey | null>(null)
@@ -145,14 +155,22 @@ export function useApplications() {
     typeof route.query.applicationId === 'string' ? route.query.applicationId : ''
   )
   const showApplicationList = computed(() => appId.value === ''),
-    showDocs = computed(() => route.query.view === 'docs'),
-    activeTab = computed(() => tabValue(route.query.tab))
+    showDocs = computed(() => route.query.view === 'docs')
+  const mcpAvailable = computed(
+    () =>
+      scopeCatalog.value?.scopes.includes('mcp:invoke') &&
+      (canUseCapability('mcp', 'publish') || canUseCapability('mcp', 'use'))
+  )
+  const activeTab = computed(() => {
+    const tab = tabValue(route.query.tab)
+    return tab === 'mcp' && !mcpAvailable.value ? 'overview' : tab
+  })
   const canListKeys = true,
     canCreateKey = computed(() => canUseCapability('developer', 'key_create')),
     canViewModelAuthorizations = true,
     canQueryUsage = true
   const keyActions = computed<MenuAction[]>(() => [
-    ...(canUseCapability('developer', 'key_rotate')
+    ...(canRotateKeys.value
       ? [{ command: 'rotate', label: '轮换密钥', icon: ReloadOutlined }]
       : []),
     ...(canUseCapability('developer', 'key_revoke')
@@ -162,6 +180,12 @@ export function useApplications() {
       ? [{ command: 'delete', label: '删除密钥', icon: DeleteOutlined, danger: true }]
       : [])
   ])
+  const canRotateKeys = computed(
+    () =>
+      canUseCapability('developer', 'key_rotate') &&
+      selectedApplication.value?.status === 'active' &&
+      selectedApplication.value.platformEnabled !== false
+  )
   const modelOptions = computed(() =>
     models.value
       .filter((model) => model.enabled)
@@ -169,6 +193,14 @@ export function useApplications() {
   )
   const agentOptions = computed(() =>
     agents.value.map(({ id, name }) => ({ value: id, label: name }))
+  )
+  const mcpOptions = computed(() =>
+    mcpTools.value
+      .filter((tool) => tool.available)
+      .map((tool) => ({
+        value: tool.id,
+        label: tool.name + ' · ' + tool.serverName
+      }))
   )
   const resourceScopesSelected = computed(() =>
     resourceKinds.some((kind) =>
@@ -227,7 +259,8 @@ export function useApplications() {
           scopeCatalog.value,
           keyForm.agentIds,
           grants.value,
-          keyForm.createKinds
+          keyForm.createKinds,
+          keyForm.mcpToolIds
         )
       : '请先加载能力目录'
   const applicationRules = {
@@ -275,10 +308,14 @@ export function useApplications() {
     clearIssuedKey()
   }
   function clearResources(): void {
+    detailEpoch.value += 1
+    loadedAt.keys = loadedAt.models = loadedAt.usage = 0
     scopes.keys.replace()
     scopes.models.replace()
     scopes.targets.replace()
     agents.value = []
+    mcpTools.value = []
+    mcpError.value = ''
     resources.value = []
     agentError.value = ''
     resourceError.value = ''
@@ -287,6 +324,7 @@ export function useApplications() {
     keys.value = []
     models.value = []
     usageRows.value = []
+    usageTotal.value = 0
     keyLoading.value = false
     modelLoading.value = false
     usageLoading.value = false
@@ -367,7 +405,12 @@ export function useApplications() {
       const result = await listDeveloperKeys(id, context.signal)
       if (context.isCurrent() && selectedApplication.value?.applicationId === id) {
         keys.value = result
-        if (result.some((key) => key.grants.length) && !modelLoading.value && !models.value.length)
+        loadedAt.keys = Date.now()
+        if (
+          result.some((key) => key.grants.length) &&
+          !modelLoading.value &&
+          !isFresh(loadedAt.models)
+        )
           void loadModels()
         if (result.some((key) => key.agentIds.length || key.resourceGrants.length))
           void loadKeyTargets()
@@ -384,7 +427,10 @@ export function useApplications() {
     modelError.value = ''
     try {
       const result = await getModels(context.signal)
-      if (context.isCurrent()) models.value = result
+      if (context.isCurrent()) {
+        models.value = result
+        loadedAt.models = Date.now()
+      }
     } catch (reason) {
       if (context.isCurrent() && !isAborted(reason)) modelError.value = errorMessage(reason)
     } finally {
@@ -398,17 +444,33 @@ export function useApplications() {
     targetsLoading.value = true
     agentError.value = ''
     resourceError.value = ''
+    mcpError.value = ''
     await Promise.all([
-      listAgentCandidates(id, context.signal)
-        .then((items) => {
-          if (context.isCurrent()) agents.value = items
-        })
-        .catch((reason) => {
-          if (context.isCurrent() && !isAborted(reason)) {
-            agents.value = []
-            agentError.value = errorMessage(reason)
-          }
-        }),
+      canUseCapability('mcp', 'use') && scopeCatalog.value?.scopes.includes('mcp:invoke')
+        ? listMcpPublications(id, context.signal)
+            .then((items) => {
+              if (context.isCurrent()) mcpTools.value = items
+            })
+            .catch((reason) => {
+              if (context.isCurrent() && !isAborted(reason)) {
+                mcpTools.value = []
+                mcpError.value = errorMessage(reason)
+              }
+            })
+        : Promise.resolve(),
+      canUseCapability('agents', 'use') &&
+      (keyForm.scopes.includes('agents:invoke') || keys.value.some((key) => key.agentIds.length))
+        ? listAgentCandidates(id, context.signal)
+            .then((items) => {
+              if (context.isCurrent()) agents.value = items
+            })
+            .catch((reason) => {
+              if (context.isCurrent() && !isAborted(reason)) {
+                agents.value = []
+                agentError.value = errorMessage(reason)
+              }
+            })
+        : Promise.resolve(),
       getResourceAccess(id, context.signal)
         .then((access) => {
           if (context.isCurrent()) resources.value = access.items
@@ -424,6 +486,9 @@ export function useApplications() {
       targetsLoading.value = false
       keyForm.agentIds = keyForm.agentIds.filter((id) =>
         agents.value.some((agent) => agent.id === id)
+      )
+      keyForm.mcpToolIds = keyForm.mcpToolIds.filter((id) =>
+        mcpOptions.value.some((tool) => tool.value === id)
       )
       keyForm.resourceActions = keyForm.resourceActions.filter((value) =>
         resourceOptions.value.some((option) => option.value === value)
@@ -448,6 +513,7 @@ export function useApplications() {
       if (context.isCurrent() && selectedApplication.value?.applicationId === id) {
         usageRows.value = result.rows
         usageTotal.value = result.total
+        loadedAt.usage = Date.now()
       }
     } catch (reason) {
       if (context.isCurrent() && !isAborted(reason)) usageError.value = errorMessage(reason)
@@ -457,9 +523,15 @@ export function useApplications() {
   }
   async function loadActiveTabData(): Promise<void> {
     if (showDocs.value || !selectedApplication.value) return
-    if (activeTab.value === 'keys') await loadKeys()
-    else if (activeTab.value === 'models') await loadModelAuthorizations()
-    else if (activeTab.value === 'usage') await loadUsage()
+    if (activeTab.value === 'keys' || activeTab.value === 'models') {
+      await Promise.all([
+        !keyLoading.value && !isFresh(loadedAt.keys) ? loadKeys() : undefined,
+        activeTab.value === 'models' && !modelLoading.value && !isFresh(loadedAt.models)
+          ? loadModels()
+          : undefined
+      ])
+    } else if (activeTab.value === 'usage' && !usageLoading.value && !isFresh(loadedAt.usage))
+      await loadUsage()
   }
   async function loadDetail(id: string): Promise<void> {
     const context = scopes.detail.replace()
@@ -488,10 +560,10 @@ export function useApplications() {
     }
   }
   watch(
-    () => [appId.value, activeTab.value, showDocs.value],
-    ([id, tab, docs], previous) => {
+    [appId, activeTab, showDocs],
+    ([id, tab, docs], [previousId, previousTab, previousDocs]) => {
       errorDetails.value = undefined
-      if (previous && (id !== previous[0] || tab !== previous[1])) closeForms()
+      if (id !== previousId || tab !== previousTab) closeForms()
       if (docs) {
         closeForms()
         scopes.detail.replace()
@@ -499,8 +571,8 @@ export function useApplications() {
         clearResources()
         return
       }
-      if (typeof id === 'string' && id) {
-        if (selectedApplication.value?.applicationId !== id || previous?.[2]) void loadDetail(id)
+      if (id) {
+        if (previousId !== id || previousDocs) void loadDetail(id)
         else void loadActiveTabData()
       } else {
         scopes.detail.replace()
@@ -519,7 +591,16 @@ export function useApplications() {
       scopeCatalog.value = null
       closeForms()
       saving.value = false
-      if (canUseCapability('developer', 'read')) void loadScopeCatalog()
+      if (canUseCapability('developer', 'read')) {
+        if (appId.value && !showDocs.value) void loadDetail(appId.value)
+        else clearResources()
+        void loadScopeCatalog()
+      } else {
+        scopes.detail.replace()
+        selectedApplication.value = null
+        detailLoading.value = false
+        clearResources()
+      }
     }
   )
   onMounted(() => {
@@ -732,6 +813,7 @@ export function useApplications() {
           monthly_points_limit: pointLimit,
           model_ids: [...keyForm.modelIds],
           agent_ids: [...keyForm.agentIds],
+          ...(keyForm.mcpToolIds.length ? { mcp_tool_ids: [...keyForm.mcpToolIds] } : {}),
           resource_grants: grants.value,
           create_resource_kinds: [...keyForm.createKinds],
           scopes: [...keyForm.scopes],
@@ -765,7 +847,8 @@ export function useApplications() {
       item.applicationId !== id ||
       saving.value ||
       (command !== 'rotate' && command !== 'revoke' && command !== 'delete') ||
-      (command === 'rotate' && item.status !== 'active') ||
+      (command === 'rotate' &&
+        (!canRotateKeys.value || item.status !== 'active' || item.canRotate === false)) ||
       (command === 'revoke' && item.status !== 'active' && item.status !== 'retiring')
     )
       return
@@ -785,6 +868,7 @@ export function useApplications() {
         return
       keyError.value = ''
       if (command === 'rotate') {
+        if (!canRotateKeys.value) return
         const result = await rotateDeveloperKey(id, item.keyId, context.signal)
         if (context.isCurrent()) {
           issuedKey.value = result
@@ -816,11 +900,19 @@ export function useApplications() {
     await router.replace({ path: route.path, query: { ...route.query, view: undefined }, hash: '' })
   }
   function setKeyScopes(value: unknown): void {
+    const hadMcp = keyForm.scopes.includes('mcp:invoke')
+    const hadAgent = keyForm.scopes.includes('agents:invoke')
     keyForm.scopes = Array.isArray(value)
       ? value.filter((item): item is string => typeof item === 'string')
       : []
     if (!keyForm.scopes.includes('models:invoke')) keyForm.modelIds = []
     if (!keyForm.scopes.includes('agents:invoke')) keyForm.agentIds = []
+    if (!keyForm.scopes.includes('mcp:invoke')) keyForm.mcpToolIds = []
+    if (
+      (!hadMcp && keyForm.scopes.includes('mcp:invoke')) ||
+      (!hadAgent && keyForm.scopes.includes('agents:invoke'))
+    )
+      void loadKeyTargets()
     keyForm.resourceActions = keyForm.resourceActions.filter((value) =>
       resourceOptions.value.some((option) => option.value === value)
     )
@@ -829,7 +921,7 @@ export function useApplications() {
     )
   }
   function setKeySelection(
-    field: 'modelIds' | 'agentIds' | 'resourceActions' | 'createKinds',
+    field: 'modelIds' | 'agentIds' | 'mcpToolIds' | 'resourceActions' | 'createKinds',
     value: unknown
   ): void {
     const values = Array.isArray(value)
@@ -895,6 +987,8 @@ export function useApplications() {
     showApplicationList,
     showDocs,
     activeTab,
+    mcpAvailable,
+    detailEpoch,
     canListKeys,
     canCreateKey,
     canViewModelAuthorizations,
@@ -902,6 +996,8 @@ export function useApplications() {
     keyActions,
     modelOptions,
     agentOptions,
+    mcpOptions,
+    mcpError,
     resourceOptions,
     createOptions,
     resourceScopesSelected,

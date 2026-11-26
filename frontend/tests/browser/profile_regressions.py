@@ -196,13 +196,15 @@ class ProfileRegressions(unittest.IsolatedAsyncioTestCase):
         self.password_failure = None
         await self.fill_passwords(new=' new-password-123 ')
         await self.page.get_by_role('button', name='修改密码', exact=True).click()
-        await expect(self.page).to_have_url(self.origin + '/login?passwordChanged=1')
+        await expect(self.page).to_have_url(self.origin + '/login')
         await expect(self.page.get_by_text('密码修改成功，请使用新密码重新登录', exact=True)).to_be_visible()
         self.assertEqual(self.password_updates[-1], {'current_password': 'old-password', 'new_password': ' new-password-123 ', 'expected_version': 1})
         storage = await self.page.evaluate('JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)])')
         self.assertNotIn('new-password', storage)
         self.assertNotIn('old-password', storage)
-        await expect(self.page.locator('.ant-alert-success')).to_contain_text('密码修改成功，请使用新密码重新登录')
+        await expect(self.page.locator('.platform-feedback').get_by_role('status')).to_have_text(
+            '密码修改成功，请使用新密码重新登录'
+        )
 
     async def test_password_conflict_requires_reload_and_keeps_profile_draft(self):
         self.password_failure = (409, '账号已变更')

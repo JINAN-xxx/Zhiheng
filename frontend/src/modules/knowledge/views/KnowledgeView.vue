@@ -4,7 +4,6 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeftOutlined, InboxOutlined } from '@ant-design/icons-vue'
 import {
-  message as notice,
   Alert as AAlert,
   Button as AButton,
   Form as AForm,
@@ -18,6 +17,7 @@ import {
   Textarea as ATextarea,
   UploadDragger as AUploadDragger
 } from 'ant-design-vue'
+import { feedback as notice } from '../../../shared/feedback.ts'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import { saveBlob } from '../../files/public.ts'
@@ -202,8 +202,9 @@ async function downloadOriginal(file = previewFile.value): Promise<void> {
     if (ticket.isCurrent()) saveBlob(blob, file.name)
   } catch (reason) {
     if (ticket.isCurrent() && !isAborted(reason)) {
-      actionError.value = errorMessage(reason)
-      if (preview.open) preview.error = errorMessage(reason)
+      const message = errorMessage(reason)
+      if (preview.open) preview.error = message
+      else notice.error(message)
       if (
         graphTarget.value &&
         reason instanceof ApiError &&

@@ -51,6 +51,7 @@ const call = (value: unknown) => {
     id: string(row.id),
     name: string(row.tool_name),
     status: string(row.status),
+    source: row.key_id ? '开发接入' : '工作空间',
     code: row.error_code === null ? null : string(row.error_code),
     time: string(row.created_at),
     duration: number(row.duration_ms)

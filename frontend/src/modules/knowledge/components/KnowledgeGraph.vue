@@ -93,7 +93,8 @@
 </template>
 
 <script setup lang="ts">
-import { Button as AButton, message } from 'ant-design-vue'
+import { Button as AButton } from 'ant-design-vue'
+import { feedback as message } from '../../../shared/feedback.ts'
 import {
   CloseOutlined,
   FullscreenExitOutlined,

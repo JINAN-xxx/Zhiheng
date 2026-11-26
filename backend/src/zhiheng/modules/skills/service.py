@@ -423,6 +423,20 @@ class SkillService:
             )
         return info
 
+    async def platform_detail(self, session: AsyncSession, skill_id: UUID) -> tuple[SkillInfo, str]:
+        row = (
+            await session.execute(
+                select(Skill, SkillRevision)
+                .join(SkillRevision, SkillRevision.skill_id == Skill.id)
+                .where(Skill.id == skill_id, Skill.source == 'upload', _published_skill())
+                .options(revision_columns(content=True))
+            )
+        ).one_or_none()
+        if row is None:
+            raise AppError('skill_unavailable', '平台技能已下架或不可用', 404)
+        skill, revision = row
+        return self._catalog_info(skill, revision), revision.content
+
     async def publish_platform(
         self, session: AsyncSession, principal: Principal, skill_id: UUID, expected_version: int
     ) -> SkillInfo:

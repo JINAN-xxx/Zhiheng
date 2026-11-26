@@ -1,18 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import {
-  Alert as AAlert,
-  ConfigProvider as AConfigProvider,
-  Drawer as ADrawer,
-  Spin as ASpin
-} from 'ant-design-vue'
+import { ConfigProvider as AConfigProvider, Drawer as ADrawer, Spin as ASpin } from 'ant-design-vue'
 import { onBeforeUnmount, onMounted, watch, nextTick } from 'vue'
 import { identity, logout } from '../modules/identity/public.ts'
 import { ChatWorkspaceProvider } from '../modules/chat/public.ts'
 import { WorkWorkspaceProvider } from '../modules/work/public.ts'
 import { lightTheme } from '../shared/theme.ts'
 import { errorMessage } from '../shared/http.ts'
+import { feedback } from '../shared/feedback.ts'
 import PlatformSidebar from './components/PlatformSidebar.vue'
 import AiResourceShell from './components/AiResourceShell.vue'
 import PlatformTopbar from './components/PlatformTopbar.vue'
@@ -26,7 +22,6 @@ const routeViewKey = computed(() => {
   return parameter ? `${String(route.name)}:${String(route.params[parameter] ?? '')}` : route.path
 })
 const leaving = ref(false)
-const error = ref('')
 const collapsed = ref(false)
 const mobileOpen = ref(false)
 const viewportWidth = ref(window.innerWidth)
@@ -56,7 +51,7 @@ async function signOut(): Promise<void> {
   try {
     await logout()
   } catch (reason) {
-    error.value = errorMessage(reason)
+    feedback.error(errorMessage(reason))
   } finally {
     leaving.value = false
     await router.replace('/login')
@@ -65,7 +60,6 @@ async function signOut(): Promise<void> {
 </script>
 <template>
   <AConfigProvider :theme="lightTheme">
-    <AAlert v-if="error" :message="error" type="error" closable @close="error = ''" />
     <RouterView v-if="route.meta.public" />
     <ChatWorkspaceProvider v-else-if="identity" :key="identity.id">
       <WorkWorkspaceProvider>

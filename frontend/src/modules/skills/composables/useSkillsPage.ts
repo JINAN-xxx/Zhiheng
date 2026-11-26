@@ -8,6 +8,7 @@ import {
   deleteSkill,
   getSkill,
   getSkillContent,
+  getPlatformSkillDetail,
   getSkillReferences,
   listSkills,
   updateSkillStatus,
@@ -225,18 +226,21 @@ export function useSkillsPage() {
 
   async function loadDetail(): Promise<void> {
     const item = detail.value
-    if (!detailOpen.value || !item || item.sourceType === 'platform') return
+    if (!detailOpen.value || !item) return
     const context = detailScope.replace()
     detailLoading.value = true
     detailError.value = ''
     try {
-      const [updated, text] = await Promise.all([
-        getSkill(item.skillId, context.signal),
-        getSkillContent(item.skillId, context.signal)
-      ])
+      const result =
+        item.sourceType === 'platform'
+          ? await getPlatformSkillDetail(item.skillId, context.signal)
+          : await Promise.all([
+              getSkill(item.skillId, context.signal),
+              getSkillContent(item.skillId, context.signal)
+            ]).then(([skill, content]) => ({ skill, content }))
       if (context.isCurrent() && detail.value?.skillId === item.skillId) {
-        syncSkill(updated)
-        content.value = text
+        syncSkill(result.skill)
+        content.value = result.content
       }
     } catch (reason) {
       if (context.isCurrent() && !isAborted(reason)) detailError.value = errorMessage(reason)

@@ -92,7 +92,8 @@ async def test_non_cancelled_bridge_still_propagates_model_errors(operation: str
     async def model(_call: GraphSDKCall) -> str:
         raise failure
 
-    llm, embedding = _callbacks(model, asyncio.get_running_loop(), VectorIOControl(timeout_seconds=5), 2)
+    failures: list[Exception] = []
+    llm, embedding = _callbacks(model, asyncio.get_running_loop(), VectorIOControl(timeout_seconds=5), 2, failures)
 
     async def sdk_program() -> None:
         with pytest.raises(AppError) as caught:
@@ -103,3 +104,4 @@ async def test_non_cancelled_bridge_still_propagates_model_errors(operation: str
         assert caught.value is failure
 
     await asyncio.to_thread(lambda: asyncio.run(sdk_program()))
+    assert failures == [failure]

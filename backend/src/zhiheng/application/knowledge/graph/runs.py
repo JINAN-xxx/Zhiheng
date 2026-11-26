@@ -178,6 +178,8 @@ class GraphRuns:
                                 and snapshot.error.code == 'knowledge_rerank_transient'
                             ):
                                 raise AppError('knowledge_rerank_failed', '图谱重排服务暂时不可用', 502)
+                            if snapshot.status == 'failed' and snapshot.error is not None:
+                                raise AppError(snapshot.error.code, snapshot.error.message, 502)
                             raise AppError('graph_model_failed', '图谱模型调用失败或结果不确定', 502)
                         if snapshot.finish_reason == 'length':
                             raise AppError('graph_model_truncated', '图谱抽取或摘要被输出上限截断', 422)

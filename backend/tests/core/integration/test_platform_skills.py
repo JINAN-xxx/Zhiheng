@@ -66,6 +66,8 @@ async def test_platform_publication_uses_latest_release_and_preserves_frozen_exe
 ) -> None:
     old = await install(admin, 'manual', 'Original instruction')
     path = f'/api/skills/{old["id"]}/platform'
+    detail_path = f'/api/skills/platform/{old["id"]}'
+    assert (await admin.get(detail_path)).status_code == 404
     release = await admin.put(path, json={'expected_version': old['version']})
     assert release.status_code == 200, release.text
     async with account(admin, app, *grants('platform:skills', 'use', 'update')) as (user, _, account_info):
@@ -73,6 +75,11 @@ async def test_platform_publication_uses_latest_release_and_preserves_frozen_exe
         visible = (await user.get('/api/skills', params={'source': 'platform'})).json()['items']
         published = next(item for item in visible if item['source'] == 'platform')
         assert published['revision_id'] == old['revision_id']
+        detail = await user.get(detail_path)
+        assert detail.status_code == 200, detail.text
+        assert detail.headers['cache-control'] == 'no-store'
+        assert detail.json()['skill'] == published
+        assert detail.json()['content'].endswith('Original instruction')
         assert (await user.get(f'/api/skills/{old["id"]}/content')).status_code == 404
         assert (await user.put(path, json={'expected_version': release.json()['version']})).status_code == 403
         available = (await user.get('/api/skills/available')).json()
@@ -83,11 +90,15 @@ async def test_platform_publication_uses_latest_release_and_preserves_frozen_exe
         assert 'Original instruction' in original.revisions[0].content
 
         updated = await install(admin, 'manual', 'Updated instruction')
+        assert (await user.get(detail_path)).json()['content'].endswith('Original instruction')
         async with database.sessions.begin() as session:
             still_old = await resolve_selection(session, owner, [key])
         assert still_old == original
         republished = await admin.put(path, json={'expected_version': updated['version']})
         assert republished.status_code == 200, republished.text
+        refreshed = (await user.get(detail_path)).json()
+        assert refreshed['skill']['revision_id'] == updated['revision_id']
+        assert refreshed['content'].endswith('Updated instruction')
         async with database.sessions.begin() as session:
             latest = await resolve_selection(session, owner, [key])
             await require_frozen_available(session, owner, original)
@@ -97,6 +108,7 @@ async def test_platform_publication_uses_latest_release_and_preserves_frozen_exe
 
         hide = await admin.request('DELETE', path, json={'expected_revision_id': updated['revision_id']})
         assert hide.status_code == 204, hide.text
+        assert (await user.get(detail_path)).status_code == 404
         assert key not in {item['slug'] for item in (await user.get('/api/skills/available')).json()}
         async with database.sessions.begin() as session:
             with pytest.raises(AppError, match='所选技能不存在或已停用'):

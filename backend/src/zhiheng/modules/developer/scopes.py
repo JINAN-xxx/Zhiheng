@@ -11,6 +11,7 @@ from zhiheng.shared.principal import Principal
 Scope = Literal[
     'models:invoke',
     'agents:invoke',
+    'mcp:invoke',
     'files:read',
     'files:write',
     'knowledge:read',
@@ -32,6 +33,7 @@ class ScopeDefinition:
 SCOPE_DEFINITIONS = (
     ScopeDefinition('models:invoke', '模型调用', '调用允许列表中的模型', True),
     ScopeDefinition('agents:invoke', '智能体调用', '调用此密钥选定的智能体'),
+    ScopeDefinition('mcp:invoke', 'MCP 工具调用', '调用此密钥选定的已发布工具'),
     ScopeDefinition('files:read', '读取文件', '读取已授权文件的元数据与内容'),
     ScopeDefinition('files:write', '管理文件', '上传、回收与恢复已授权文件'),
     ScopeDefinition('knowledge:read', '读取知识库', '读取已授权知识库、目录与文档元数据'),
@@ -74,7 +76,7 @@ def require_key_capabilities(principal: Principal, scopes: Sequence[str] = (), *
     require_capability(principal, 'developer', operation)
     for scope in scopes:
         namespace, action = scope.split(':')
-        if namespace not in {'knowledge', 'skills', 'agents'}:
+        if namespace not in {'knowledge', 'skills', 'agents', 'mcp'}:
             continue
         if action == 'write':
             operations = (

@@ -6,7 +6,6 @@ from uuid import UUID
 
 from pydantic import Field, field_validator, model_validator
 
-from zhiheng.modules.mcp.public import ToolSelection
 from zhiheng.modules.work.base import Input, Version, safe_text
 from zhiheng.modules.work.facts import visible_work_text
 
@@ -78,15 +77,12 @@ class AgentTurn(Input):
     message: Annotated[str, Field(max_length=32000)] = ''
     file_ids: list[UUID] = Field(default_factory=list, max_length=20)
     resume: bool = Field(default=False, strict=True)
-    mcp_tool: ToolSelection | None = None
 
     @model_validator(mode='after')
     def valid_turn(self) -> 'AgentTurn':
         self.message = safe_text(self.message).strip()
         if self.resume and self.message:
             raise ValueError('继续执行时不应重复发送消息')
-        if self.resume and self.mcp_tool is not None:
-            raise ValueError('继续执行时沿用原工具配置')
         if not self.resume and not self.message:
             raise ValueError('请输入本次要求')
         if len(self.file_ids) != len(set(self.file_ids)):

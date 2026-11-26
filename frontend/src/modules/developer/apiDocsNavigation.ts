@@ -36,6 +36,7 @@ function categories(item: ApiDocument): Category[] {
   if (/^\/api\/v1\/operations(?:\/|$)/.test(path)) return [['operations', '异步操作']]
   if (path.startsWith('/v1/agents/')) return [['agents', '智能体调用']]
   if (/^\/v1\/(models|chat|embeddings|rerank)(?:\/|$)/.test(path)) return [['models', '模型调用']]
+  if (path === '/v1/mcp') return [['mcp', 'MCP 工具']]
   return [['other', '其他接口']]
 }
 
@@ -47,7 +48,7 @@ export function buildApiDocNavigation(
     { anchor: 'api-overview', label: '接入说明' },
     { anchor: 'api-auth', label: '鉴权方式' },
     { anchor: 'api-protocol', label: '版本与错误' },
-    { anchor: 'api-recipes', label: '资源接入顺序' },
+    { anchor: 'api-recipes', label: group === 'inference' ? '模型接入顺序' : '资源接入顺序' },
     ...(group === 'inference' ? [{ anchor: 'api-streaming', label: '流式调用' }] : [])
   ]
   const result: ApiDocNavigationNode[] = [
@@ -76,7 +77,10 @@ export function buildApiDocNavigation(
       method: item.method
     })
   }
-  const order = ['guide', 'knowledge', 'skills', 'files', 'operations', 'models', 'agents', 'other']
+  const order =
+    group === 'inference'
+      ? ['models', 'agents', 'mcp', 'guide', 'other']
+      : ['guide', 'knowledge', 'skills', 'files', 'operations', 'other']
   return result.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
 }
 

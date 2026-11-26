@@ -1,4 +1,4 @@
-import { message } from 'ant-design-vue'
+import { feedback as message } from './feedback.ts'
 import { copyText } from './clipboard.ts'
 
 // Markdown's copy event is emitted after its built-in async-clipboard attempt.

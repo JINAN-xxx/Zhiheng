@@ -340,9 +340,17 @@ class AssistantConversationService:
                     session, principal, value.info.id, value.plaza_version, value.config.knowledge_base_ids, lock=True
                 )
             await self.knowledge.check(session, prepared, source_owner)
-            messages = (prepared.agent_prefix(), *messages)
+            messages = (*prepared.agent_prefix(), *messages)
         metadata = await self.execution.prepare(
-            session, principal, value, binding, messages, request_id, number, attachments=attachments
+            session,
+            principal,
+            value,
+            binding,
+            messages,
+            request_id,
+            number,
+            attachments=attachments,
+            reference_message_index=1 if prepared else None,
         )
         require_execution_capabilities(
             principal,

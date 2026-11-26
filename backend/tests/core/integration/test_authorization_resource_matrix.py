@@ -436,11 +436,15 @@ async def inference_context(
         method = 'POST'
     elif operation.startswith('agent_'):
         endpoint = f'/v1/agents/{agent.json()["id"]}/chat/completions'
-        body = {'messages': [{'role': 'user', 'content': 'matrix'}]}
+        body = {'user': 'test-user', 'message': 'matrix', 'client_request_id': str(uuid4())}
         method = 'POST'
         if operation != 'agent_chat':
             prepared = await legacy_work_request(
-                admin, 'POST', endpoint, headers=auth(key), json={**body, 'client_request_id': str(uuid4())}
+                admin,
+                'POST',
+                endpoint,
+                headers={**auth(key), 'Prefer': 'respond-async'},
+                json={**body, 'client_request_id': str(uuid4())},
             )
             assert prepared.status_code == 202, prepared.text
             endpoint = prepared.json()['polling_url']
@@ -633,9 +637,7 @@ async def test_native_rebuild_scope_follows_material_policy(
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, operation: str, legacy: bool
 ) -> None:
     world = await make_world(admin, app, provider, legacy=legacy)
-    key = await issue(
-        admin, world.application['id'], scopes=['knowledge:write']
-    )
+    key = await issue(admin, world.application['id'], scopes=['knowledge:write'])
     selected = next(item for item in WRITE_OPERATIONS if item.name == operation)
     before, calls = await domain_facts(app), len(provider.requests)
     response = await legacy_work_request(

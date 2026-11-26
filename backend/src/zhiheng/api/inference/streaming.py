@@ -132,6 +132,7 @@ async def chat_frames(
     model: UUID,
     *,
     scope: KeyScope,
+    conversation_id: UUID | None = None,
 ) -> AsyncIterator[str]:
     def chunk(delta: dict[str, object], finish: str | None = None) -> dict[str, object]:
         return {
@@ -139,6 +140,7 @@ async def chat_frames(
             'object': 'chat.completion.chunk',
             'created': int(run.created_at.timestamp()),
             'model': str(model),
+            **({'conversation_id': str(conversation_id)} if conversation_id else {}),
             'choices': [{'index': 0, 'delta': delta, 'finish_reason': finish}],
         }
 
@@ -177,10 +179,11 @@ async def chat_response(
     *,
     stream: bool,
     scope: KeyScope,
+    conversation_id: UUID | None = None,
 ) -> JSONResponse | StreamingResponse:
     if stream:
         return LifecycleStream(
-            chat_frames(container, request, run, owner_id, token, model, scope=scope),
+            chat_frames(container, request, run, owner_id, token, model, scope=scope, conversation_id=conversation_id),
             lambda: cancel(container, run.id, owner_id),
         )
     result = await wait_result(container, request, run, owner_id, token, scope=scope)
@@ -190,6 +193,7 @@ async def chat_response(
             'object': 'chat.completion',
             'created': int(run.created_at.timestamp()),
             'model': str(model),
+            **({'conversation_id': str(conversation_id)} if conversation_id else {}),
             'choices': [
                 {
                     'index': 0,

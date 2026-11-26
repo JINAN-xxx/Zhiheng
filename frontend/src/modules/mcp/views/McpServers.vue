@@ -17,6 +17,7 @@ import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
 import ResourceDrawer from '../../../shared/components/ResourceDrawer.vue'
 import { errorMessage, RequestScope } from '../../../shared/http.ts'
+import { feedback } from '../../../shared/feedback.ts'
 import { canUseCapability } from '../../identity/public.ts'
 import {
   createMcpServer,
@@ -44,7 +45,6 @@ const busy = ref(false)
 const callsLoading = ref(false)
 const editOpen = ref(false)
 const error = ref('')
-const notice = ref('')
 const formError = ref('')
 const detailError = ref('')
 const form = reactive({ name: '', endpoint: '', token: '', clearToken: false })
@@ -69,6 +69,7 @@ const toolColumns = [
 ]
 const callColumns = [
   { key: 'name', title: '工具', dataIndex: 'name', width: 170 },
+  { key: 'source', title: '来源', dataIndex: 'source', width: 92 },
   { key: 'status', title: '结果', width: 185 },
   { key: 'duration', title: '耗时', width: 95 },
   { key: 'time', title: '时间', width: 175 }
@@ -103,19 +104,25 @@ function upsert(server: McpServer) {
   if (selected.value?.id === server.id) selected.value = server
 }
 
-async function perform(action: (signal: AbortSignal) => Promise<McpServer>, destination = error) {
+async function perform(
+  action: (signal: AbortSignal) => Promise<McpServer>,
+  destination?: typeof formError
+) {
   if (busy.value || loading.value) return false
   const ticket = actionScope.replace()
   busy.value = true
-  notice.value = ''
-  destination.value = ''
+  if (destination) destination.value = ''
   try {
     const result = await action(ticket.signal)
     if (!ticket.isCurrent()) return false
     upsert(result)
     return true
   } catch (failure) {
-    if (ticket.isCurrent()) destination.value = errorMessage(failure)
+    if (ticket.isCurrent()) {
+      const message = errorMessage(failure)
+      if (destination) destination.value = message
+      else feedback.error(message)
+    }
     return false
   } finally {
     if (ticket.isCurrent()) busy.value = false
@@ -172,7 +179,7 @@ function closeEdit() {
 async function sync(server: McpServer) {
   if (!canConfigure.value) return
   if (await perform((signal) => syncMcpServer(server.id, server.version, signal))) {
-    notice.value = '连接成功，工具清单已更新'
+    feedback.success('连接成功，工具清单已更新')
   }
 }
 
@@ -256,14 +263,6 @@ onBeforeUnmount(() => {
       >
     </template>
     <AAlert v-if="error" :message="error" type="error" show-icon />
-    <AAlert
-      v-else-if="notice"
-      :message="notice"
-      type="success"
-      show-icon
-      closable
-      @close="notice = ''"
-    />
     <ResourceTable
       :rows="rows"
       :columns="columns"

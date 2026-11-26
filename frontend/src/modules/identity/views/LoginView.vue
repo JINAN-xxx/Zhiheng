@@ -9,9 +9,9 @@ import {
   FormItem as AFormItem,
   Input as AInput,
   InputPassword as AInputPassword,
-  Modal as AModal,
-  message
+  Modal as AModal
 } from 'ant-design-vue'
+import { feedback as message } from '../../../shared/feedback.ts'
 import AuthShell from '../../../shared/components/AuthShell.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { identity, login, loginDestination } from '../public.ts'
@@ -26,8 +26,13 @@ const error = ref('')
 const navigationError = ref(typeof route.query.reason === 'string' ? route.query.reason : '')
 const scope = new RequestScope()
 onMounted(() => {
-  if (!Object.prototype.hasOwnProperty.call(route.query, 'reason')) return
   const query = { ...route.query }
+  const passwordChanged = query.passwordChanged === '1'
+  if (passwordChanged) {
+    message.success({ content: '密码修改成功，请使用新密码重新登录', duration: 5 })
+    delete query.passwordChanged
+  }
+  if (!passwordChanged && !Object.prototype.hasOwnProperty.call(query, 'reason')) return
   delete query.reason
   // A navigation failure is a one-time notice, not a persistent login-page state.
   void router.replace({ path: route.path, query, hash: route.hash })
@@ -82,13 +87,6 @@ async function submit(): Promise<void> {
       closable
       class="space-bottom"
       @close="navigationError = ''"
-    />
-    <AAlert
-      v-else-if="route.query.passwordChanged === '1'"
-      message="密码修改成功，请使用新密码重新登录"
-      type="success"
-      show-icon
-      class="space-bottom"
     />
     <AForm
       name="login"

@@ -69,9 +69,9 @@ import {
   FormItem as AFormItem,
   Select as ASelect,
   Switch as ASwitch,
-  Textarea as ATextarea,
-  message as toast
+  Textarea as ATextarea
 } from 'ant-design-vue'
+import { feedback as toast } from '../../../shared/feedback.ts'
 import ResourceDrawer from '../../../shared/components/ResourceDrawer.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { findFileUsers, transferFile } from '../api/index.ts'

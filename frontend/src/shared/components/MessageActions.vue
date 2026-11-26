@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
-import { message as notice, Tooltip as ATooltip } from 'ant-design-vue'
+import { Tooltip as ATooltip } from 'ant-design-vue'
+import { feedback as notice } from '../feedback.ts'
 import {
   CopyOutlined,
   CheckOutlined,

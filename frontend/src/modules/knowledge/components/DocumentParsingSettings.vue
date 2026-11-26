@@ -10,9 +10,9 @@ import {
   InputNumber as AInputNumber,
   Select as ASelect,
   Switch as ASwitch,
-  Tag as ATag,
-  message
+  Tag as ATag
 } from 'ant-design-vue'
+import { feedback as message } from '../../../shared/feedback.ts'
 import WorkspacePanel from '../../../shared/components/WorkspacePanel.vue'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'

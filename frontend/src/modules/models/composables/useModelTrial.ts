@@ -1,5 +1,5 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { message } from 'ant-design-vue'
+import { feedback as message } from '../../../shared/feedback.ts'
 import { createRequestId } from '../../../shared/requestId.ts'
 import { identity } from '../../identity/public.ts'
 import {

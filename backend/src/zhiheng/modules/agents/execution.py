@@ -25,6 +25,7 @@ class AgentCompletion(BaseModel):
 
 
 class AssistantExecutionSpec(AgentSettings):
+    api_conversation_id: UUID | None = None
     base_run_id: UUID | None = None
     plaza_version: Annotated[int, Field(strict=True, ge=1)] | None = None
     sequence: Annotated[int, Field(strict=True, ge=0)] = 0

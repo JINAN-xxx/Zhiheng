@@ -54,9 +54,15 @@ async def file_reader(admin: httpx.AsyncClient, app_id: str, **limits: object) -
         await container.resource_access.bind(
             session, principal, UUID(app_id), 'file', file.id, ['read'], expected_version=application_info.version
         )
-    return await issue(admin, app_id, scopes=['files:read'], resource_grants=[
-        {'kind': 'file', 'resource_id': str(file.id), 'actions': ['read']},
-    ], **limits)
+    return await issue(
+        admin,
+        app_id,
+        scopes=['files:read'],
+        resource_grants=[
+            {'kind': 'file', 'resource_id': str(file.id), 'actions': ['read']},
+        ],
+        **limits,
+    )
 
 
 async def test_resource_key_needs_no_models_and_cannot_invoke(
@@ -65,14 +71,21 @@ async def test_resource_key_needs_no_models_and_cannot_invoke(
     owner_app = await application(admin)
     key = await file_reader(admin, owner_app['id'])
     assert key['model_ids'] == [] and key['resource_rpm_limit'] == 120
-    invalid = await admin.post(f'/api/developer/applications/{owner_app["id"]}/keys', json={
-        'name': 'Invalid', 'scopes': ['files:read'], 'resource_grants': key['resource_grants'], 'model_ids': [model_id],
-    })
+    invalid = await admin.post(
+        f'/api/developer/applications/{owner_app["id"]}/keys',
+        json={
+            'name': 'Invalid',
+            'scopes': ['files:read'],
+            'resource_grants': key['resource_grants'],
+            'model_ids': [model_id],
+        },
+    )
     assert invalid.status_code == 422
     headers = {'Authorization': f'Bearer {key["api_key"]}'}
     assert (await admin.get('/v1/models', headers=headers)).status_code == 403
     response = await admin.post(
-        '/v1/chat/completions', headers=headers,
+        '/v1/chat/completions',
+        headers=headers,
         json={'model': model_id, 'messages': [{'role': 'user', 'content': 'hello'}]},
     )
     assert response.status_code == 403, response.text
@@ -82,9 +95,13 @@ async def test_issuance_requires_explicit_scopes_and_rotation_copies_capabilitie
     admin: httpx.AsyncClient, model_id: str
 ) -> None:
     owner_app = await application(admin)
-    missing_scope = await admin.post(f'/api/developer/applications/{owner_app["id"]}/keys', json={
-        'name': 'Invalid', 'model_ids': [model_id],
-    })
+    missing_scope = await admin.post(
+        f'/api/developer/applications/{owner_app["id"]}/keys',
+        json={
+            'name': 'Invalid',
+            'model_ids': [model_id],
+        },
+    )
     assert missing_scope.status_code == 422
     resource = await file_reader(admin, owner_app['id'], resource_rpm_limit=7)
     rotated = await admin.post(
@@ -118,7 +135,9 @@ async def test_knowledge_scope_authorizes_embedding_without_exposing_inference(
     admin: httpx.AsyncClient, model_id: str, app: FastAPI
 ) -> None:
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], scopes=['knowledge:query', 'knowledge:write'], create_resource_kinds=['knowledge_base'])
+    key = await issue(
+        admin, owner_app['id'], scopes=['knowledge:query', 'knowledge:write'], create_resource_kinds=['knowledge_base']
+    )
     c = app.state.container
     async with c.database.sessions.begin() as session:
         identity = await c.keys.authenticate(session, key['api_key'], lock=True)
@@ -187,9 +206,7 @@ async def test_model_key_has_no_resource_scope(admin: httpx.AsyncClient, model_i
         assert error.value.status_code == 403
 
 
-async def test_resource_key_cannot_invoke_public_agent_with_or_without_request_id(
-    admin: httpx.AsyncClient, model_id: str, app: FastAPI
-) -> None:
+async def test_resource_key_cannot_invoke_public_agent(admin: httpx.AsyncClient, model_id: str, app: FastAPI) -> None:
     from tests.core.integration.test_agents import config
 
     owner_app = await application(admin)
@@ -199,13 +216,12 @@ async def test_resource_key_cannot_invoke_public_agent_with_or_without_request_i
     agent_id = agent.json()['id']
     published = await admin.post(f'/api/agents/{agent_id}/enable', json={'expected_version': 1})
     assert published.status_code == 200, published.text
-    for extra in ({}, {'client_request_id': str(uuid4())}):
-        result = await admin.post(
-            f'/v1/agents/{agent_id}/chat/completions',
-            headers={'Authorization': f'Bearer {key["api_key"]}'},
-            json={'messages': [{'role': 'user', 'content': 'hello'}], **extra},
-        )
-        assert result.status_code == 403, result.text
+    result = await admin.post(
+        f'/v1/agents/{agent_id}/chat/completions',
+        headers={'Authorization': f'Bearer {key["api_key"]}'},
+        json={'user': 'test-user', 'message': 'hello', 'client_request_id': str(uuid4())},
+    )
+    assert result.status_code == 403, result.text
 
 
 async def test_key_preparation_rejects_a_foreign_owner_before_admission(admin: httpx.AsyncClient, app: FastAPI) -> None:
@@ -215,7 +231,9 @@ async def test_key_preparation_rejects_a_foreign_owner_before_admission(admin: h
     from zhiheng.modules.identity.orm import IdentityUser
 
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], scopes=['knowledge:query', 'knowledge:write'], create_resource_kinds=['knowledge_base'])
+    key = await issue(
+        admin, owner_app['id'], scopes=['knowledge:query', 'knowledge:write'], create_resource_kinds=['knowledge_base']
+    )
     c = app.state.container
     async with c.database.sessions.begin() as session:
         caller = await c.resource_access.bearer(session, key['api_key'], scope='knowledge:query')

@@ -460,13 +460,15 @@ class AgentService:
             raise AppError('idempotency_conflict', '原创建标识不能用于不同配置', 409)
         return await self.get(session, principal, row.id)
 
-    async def attach_summary(self, session: AsyncSession, parent: ClaimedRun, run_id: UUID) -> None:
+    async def attach_summary(
+        self, session: AsyncSession, parent: ClaimedRun, run_id: UUID, *, conversation_id: UUID
+    ) -> None:
         session.add(
             AssistantSummary(
                 parent_run_id=parent.id,
                 parent_attempt_id=parent.attempt_id,
                 run_id=run_id,
-                conversation_id=parent.resource_id,
+                conversation_id=conversation_id,
                 owner_id=parent.owner_id,
             )
         )

@@ -101,6 +101,14 @@ export const getSkill = (id: string, signal: AbortSignal) =>
   http.request(path(id), { signal, decode: parseSkill })
 export const getSkillContent = (id: string, signal: AbortSignal) =>
   http.request(`${path(id)}/content`, { signal, decode: (value) => string(object(value).content) })
+export const getPlatformSkillDetail = (id: string, signal: AbortSignal) =>
+  http.request(`/skills/platform/${encodeURIComponent(id)}`, {
+    signal,
+    decode: (value) => {
+      const data = object(value)
+      return { skill: parseSkill(data.skill), content: string(data.content) }
+    }
+  })
 export const getSkillReferences = (id: string, signal: AbortSignal) =>
   http.request(`${path(id)}/references`, {
     signal,

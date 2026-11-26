@@ -153,6 +153,87 @@ class DeveloperBoundary(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCas
 
 
 class DeveloperUIRegressions(DeveloperBoundary):
+    async def test_detail_tabs_reuse_loaded_data_and_refresh_on_request(self):
+        app_path = '/api/developer/applications/app-1'
+        reads = []
+        self.page.on('request', lambda request: reads.append(urlparse(request.url).path))
+        await self.page.route(
+            '**' + app_path + '/usage?*',
+            lambda route: route.fulfill(json={'items': [], 'total': 0}),
+        )
+        await self.page.route(
+            '**' + app_path + '/request-logs?*',
+            lambda route: route.fulfill(json={'items': [], 'total': 0}),
+        )
+        await self.open_details()
+        overview = self.page.get_by_role('tab', name='概览', exact=True)
+        tabs = [
+            ('访问密钥', '暂无访问密钥', '/keys'),
+            ('模型直调授权', '暂无模型直调授权', None),
+            ('资源授权', '示例文件', '/resource-access'),
+            ('调用记录', '暂无调用记录', '/usage'),
+            ('请求诊断', '暂无请求诊断', '/request-logs'),
+        ]
+        for label, text, suffix in tabs:
+            if suffix:
+                self.assertNotIn(app_path + suffix, reads)
+            tab = self.page.get_by_role('tab', name=label, exact=True)
+            await tab.click()
+            await expect(self.page.get_by_text(text, exact=True)).to_be_visible()
+            await overview.click()
+            await tab.click()
+            await expect(self.page.get_by_text(text, exact=True)).to_be_visible()
+            if suffix:
+                self.assertEqual(reads.count(app_path + suffix), 1)
+        self.assertEqual(reads.count(app_path), 1)
+        self.assertEqual(reads.count(app_path + '/keys'), 1)
+        self.assertEqual(reads.count('/api/models'), 1)
+        async with self.page.expect_response('**' + app_path + '/request-logs?*'):
+            await self.page.get_by_role('button', name='刷新请求记录', exact=True).click()
+        self.assertEqual(reads.count(app_path + '/request-logs'), 2)
+
+    async def test_return_to_overview_while_keys_are_loading(self):
+        self.hold_keys = True
+        await self.open_details()
+        keys = self.page.get_by_role('tab', name='访问密钥', exact=True)
+        await keys.click()
+        await asyncio.wait_for(self.keys_requested.wait(), 10)
+        await self.page.get_by_role('tab', name='概览', exact=True).click()
+        await expect(self.page.get_by_role('button', name='前往访问密钥')).to_be_visible()
+        await keys.click()
+        self.release_keys.set()
+        await expect(self.page.get_by_text('暂无访问密钥', exact=True)).to_be_visible()
+        self.assertEqual(self.key_pages, [1])
+
+    async def test_resource_tab_loads_the_new_applications_data(self):
+        app_path = '/api/developer/applications'
+        second_app = {**self.app, 'id': 'app-2', 'code': 'team-tools', 'name': '团队工具'}
+        await self.page.route(
+            '**' + app_path + '?*',
+            lambda route: route.fulfill(json={'items': [self.app, second_app], 'total': 2}),
+        )
+        await self.page.route(
+            '**' + app_path + '/app-2',
+            lambda route: route.fulfill(json=second_app),
+        )
+        await self.page.route(
+            '**' + app_path + '/app-2/resource-access',
+            lambda route: route.fulfill(json={
+                'application_version': 1, 'source_count': 0, 'source_bytes': 0,
+                'source_file_limit': 10, 'source_byte_limit': 1024,
+                'can_bind_resources': True, 'can_configure_quota': True, 'items': [],
+            }),
+        )
+        await self.open_details()
+        resources = self.page.get_by_role('tab', name='资源授权', exact=True)
+        await resources.click()
+        await expect(self.page.get_by_text('示例文件', exact=True)).to_be_visible()
+        await self.page.get_by_role('button', name=re.compile('应用列表')).click()
+        await self.page.get_by_role('button', name='管理应用“团队工具”', exact=True).click()
+        await resources.click()
+        await expect(self.page.get_by_text('尚未授权资源', exact=True)).to_be_visible()
+        await expect(self.page.get_by_text('示例文件', exact=True)).to_have_count(0)
+
     async def test_application_search_resets_pagination_and_clear_restores_list(self):
         items = [self.app] + [
             {**self.app, 'id': f'app-{index}', 'code': f'tool-{index}', 'name': f'工具 {index}'}
@@ -406,8 +487,15 @@ class DeveloperUIRegressions(DeveloperBoundary):
         await self.page.goto(self.origin + '/developer?view=docs')
         await expect(self.page.get_by_role('heading', name='API 说明', exact=True)).to_be_visible()
         await expect(self.page.get_by_text(self.origin + '/api/v1', exact=True)).to_be_visible()
-        await self.page.get_by_text('推理 API', exact=True).click()
+        nav = self.page.get_by_role('navigation', name='API 文档目录', exact=True)
+        await nav.get_by_text('推理 API', exact=True).click()
         await expect(self.page.get_by_text(self.origin + '/v1', exact=True)).to_be_visible()
+        for title in ('查询允许的模型', '对话生成', '向量生成', '文本排序'):
+            await expect(nav.get_by_role('link', name=re.compile(title))).to_be_visible()
+        await nav.get_by_role('link', name=re.compile('对话生成')).click()
+        await expect(self.page.get_by_role('heading', name='对话生成', exact=True)).to_be_in_viewport()
+        swagger = self.page.locator('a[href="/docs/inference"]')
+        await expect(swagger).to_have_text('在线调试')
         await expect(self.page.get_by_text('upstream-private', exact=True)).to_have_count(0)
 
     async def test_api_docs_nested_navigation_preserves_operations_and_deep_links(self):

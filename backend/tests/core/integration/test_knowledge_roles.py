@@ -56,8 +56,25 @@ async def test_reference_data_only_reaches_current_user_at_actual_http_provider(
                 json={'name': 'Role check', 'scopes': ['agents:invoke'], 'agent_ids': [agent['id']]},
             )
         ).json()
-        headers = {'Authorization': 'Bearer ' + key['api_key']}
+        headers = {'Authorization': 'Bearer ' + key['api_key'], 'Prefer': 'respond-async'}
         endpoint = f'/v1/agents/{agent["id"]}/chat/completions'
+        first = await admin.post(
+            endpoint,
+            headers=headers,
+            json={'user': 'test-user', 'message': 'Earlier question', 'client_request_id': str(uuid4())},
+        )
+        assert first.status_code == 202, first.text
+        await finish_preparation(admin, app, first.json(), headers)
+        body = {
+            'user': 'test-user',
+            'message': QUESTION,
+            'conversation_id': first.json()['conversation_id'],
+            'client_request_id': str(uuid4()),
+        }
+        history = [
+            {'role': 'user', 'content': 'Earlier question'},
+            {'role': 'assistant', 'content': '你好'},
+        ]
     elif entry == 'work':
         work = await task(admin, agent, goal='Earlier question')
         endpoint = f'/api/work/tasks/{work["id"]}/runs'

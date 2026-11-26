@@ -15,7 +15,11 @@
           <p>应用资源授权决定可委托的范围。签发密钥时，可为每个资源选择具体动作。</p>
         </div>
         <div class="resources-heading__actions">
-          <a-button v-if="snapshot.canBindResources" type="primary" @click="openBinding()"
+          <a-button
+            v-if="snapshot.canBindResources"
+            type="primary"
+            :disabled="saving"
+            @click="openBinding()"
             >授权资源</a-button
           >
           <RefreshButton label="刷新资源授权" :loading="loading" @click="load" />
@@ -26,7 +30,11 @@
         <span
           >逻辑空间 {{ bytes(snapshot.sourceBytes) }} / {{ bytes(snapshot.sourceByteLimit) }}</span
         >
-        <a-button v-if="snapshot.canConfigureQuota" type="link" @click="openQuota"
+        <a-button
+          v-if="snapshot.canConfigureQuota"
+          type="link"
+          :disabled="saving"
+          @click="openQuota"
           >修改额度</a-button
         >
         <small
@@ -60,7 +68,7 @@
           <template v-else-if="column.key === 'status'">{{
             record.available ? (record.owned ? '本人资源' : '共享资源') : '资源已失效'
           }}</template>
-          <a-space v-else-if="column.key === 'manage' && snapshot.canBindResources">
+          <a-space v-else-if="column.key === 'manage' && snapshot.canBindResources && active">
             <a-button
               type="link"
               :disabled="!record.available || saving"
@@ -158,7 +166,7 @@
   </section>
 </template>
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onActivated, onDeactivated, ref } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -177,6 +185,13 @@ import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import type { Application, BoundResource, ResourceAction, ResourceKind } from '../api/index.ts'
 import { useResourceAccess } from '../composables/resourceAccess.ts'
 const props = defineProps<{ application: Application }>()
+const active = ref(true)
+onActivated(() => {
+  active.value = true
+})
+onDeactivated(() => {
+  active.value = false
+})
 const emit = defineEmits<{
   versionChange: [
     version: number,

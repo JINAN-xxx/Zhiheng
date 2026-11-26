@@ -20,7 +20,7 @@ from zhiheng.modules.agents.public import (
     AssistantConversationValue,
     AssistantExecutionSpec,
 )
-from zhiheng.modules.billing.public import UsageService, lock_billing_admission
+from zhiheng.modules.billing.public import UsageFactsPort, UsageService, lock_billing_admission
 from zhiheng.modules.files.public import PreparedAttachment
 from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.knowledge.public import Hit
@@ -80,12 +80,14 @@ class AssistantAgentService:
         input_tokens: int | None,
         timeout_seconds: float,
         attachments: AssistantAttachments,
+        usage_facts: UsageFactsPort,
     ) -> None:
         self.database, self.agents, self.store = database, agents, store
         self.models, self.identity, self.runs, self.admission = models, identity, runs, admission
         self.usage, self.knowledge, self.factory, self.cleanup = usage, knowledge, factory, cleanup
         self.policy, self.input_tokens, self.timeout_seconds = policy, input_tokens, timeout_seconds
         self.attachments = attachments
+        self.usage_facts = usage_facts
 
     @staticmethod
     def thread(owner_id: UUID, agent_id: UUID, conversation_id: UUID) -> str:
@@ -173,8 +175,10 @@ class AssistantAgentService:
         sequence: int,
         *,
         attachments: tuple[PreparedAttachment, ...] = (),
+        api: bool = False,
+        reference_message_index: int | None = None,
     ) -> AssistantExecutionSpec:
-        row = await self.store.authorize(session, principal, value.info.id, lock=True)
+        row = await self.store.authorize(session, principal, value.info.id, lock=True, api=api)
         if row.runtime_version != 1:
             raise AppError('assistant_memory_legacy', '旧对话保留查看，请新建对话使用自动记忆', 409)
         previous = await self.store.snapshot(session, row.memory_run_id) if row.memory_run_id else None
@@ -215,7 +219,12 @@ class AssistantAgentService:
             history_sources=history_sources,
         )
         return metadata.model_copy(
-            update={'history_files': list(by_file.values()), 'plaza_version': value.plaza_version}
+            update={
+                'history_files': list(by_file.values()),
+                'plaza_version': value.plaza_version,
+                'api_conversation_id': row.id if api else None,
+                'reference_message_index': reference_message_index,
+            }
         )
 
     async def validate_sources(
@@ -236,15 +245,23 @@ class AssistantAgentService:
         async with self.database.sessions.begin() as session:
             if claim.resource_type == 'agent_summary':
                 link = await self.agents.summary_for_run(session, claim.id)
-                if link is None or link.parent_run_id != claim.resource_id:
+                if link is None or link.parent_run_id != claim.resource_id or link.owner_id != claim.owner_id:
                     raise AppError('assistant_summary_stale', '助手摘要执行身份已失效', 409)
                 await self.runs.lock_execution(session, link.parent_run_id, link.parent_attempt_id, allow_cancel=False)
-                parent = await self.runs.resource_snapshot(
-                    session, link.parent_run_id, 'agent_chat', link.conversation_id
-                )
-                payload = await self.runs.resource_payload(
-                    session, link.parent_run_id, 'agent_chat', link.conversation_id
-                )
+                parent = await self.runs.projection(session, link.parent_run_id)
+                frozen = await self.store.snapshot(session, parent.id)
+                if parent.resource_type == 'agent_invocation':
+                    if frozen.execution.api_conversation_id != link.conversation_id:
+                        raise AppError('assistant_summary_stale', '助手摘要执行身份已失效', 409)
+                    await self.knowledge.keys.authorize_run(
+                        session,
+                        parent.id,
+                        scope='agents:invoke',
+                        agent_id=parent.resource_id,
+                    )
+                elif parent.resource_type != 'agent_chat' or parent.resource_id != link.conversation_id:
+                    raise AppError('assistant_summary_stale', '助手摘要执行身份已失效', 409)
+                payload = await self.runs.resource_payload(session, parent.id, parent.resource_type, parent.resource_id)
                 await self._guard(
                     session, parent.id, claim.owner_id, link.conversation_id, ModelRequest.model_validate(payload)
                 )
@@ -271,11 +288,13 @@ class AssistantAgentService:
     ) -> None:
         principal = await self.identity.principal_for_user(session, owner_id)
         frozen = await self.store.snapshot(session, run_id)
+        api = frozen.execution.api_conversation_id is not None
+        conversation_id = frozen.execution.api_conversation_id or conversation_id
         source_owner = principal
         skill_owner_id = owner_id
         plaza = False
         if conversation_id is not None:
-            row = await self.store.authorize(session, principal, conversation_id)
+            row = await self.store.authorize(session, principal, conversation_id, api=api)
             if (
                 row.agent_id != frozen.agent_id
                 or row.checkpoint_id != frozen.execution.expected_head
@@ -297,7 +316,16 @@ class AssistantAgentService:
                     session, principal, conversation_id, frozen.execution.plaza_version, base_ids
                 )
         else:
-            agent = await self.agents.get(session, principal, frozen.agent_id)
+            if api:
+                assert row.api_application_id is not None
+                agent = await self.agents.require_enabled_application(
+                    session,
+                    principal,
+                    frozen.agent_id,
+                    row.api_application_id,
+                )
+            else:
+                agent = await self.agents.get(session, principal, frozen.agent_id)
             if require_enabled and not agent.enabled:
                 raise AppError('assistant_disabled', '助手已停用，请重新启用后发送', 409)
             base_ids = agent.knowledge_base_ids
@@ -316,8 +344,11 @@ class AssistantAgentService:
     ) -> AsyncIterator[ModelProvider]:
         async with self.database.sessions() as session:
             frozen = await self.store.snapshot(session, claim.id)
-        persistent = claim.resource_type == 'agent_chat'
-        thread_id = self.thread(claim.owner_id, frozen.agent_id, claim.resource_id) if persistent else str(claim.id)
+        conversation_id = frozen.execution.api_conversation_id
+        if claim.resource_type == 'agent_chat':
+            conversation_id = claim.resource_id
+        persistent = conversation_id is not None
+        thread_id = self.thread(claim.owner_id, frozen.agent_id, conversation_id) if conversation_id else str(claim.id)
         async with self.factory(
             provider,
             thread_id,
@@ -361,10 +392,23 @@ class AssistantAgentService:
                         )
                     principal = await self.identity.principal_for_user(session, parent.owner_id)
                     require_execution_capabilities(principal, 'agent_summary')
+                    key_id = None
+                    if parent.resource_type == 'agent_invocation':
+                        await self.knowledge.keys.authorize_run(
+                            session,
+                            parent.id,
+                            scope='agents:invoke',
+                            agent_id=parent.resource_id,
+                        )
+                        origin = await self.usage_facts.invocation_identity(session, parent.id)
+                        assert origin is not None and origin.key_id is not None
+                        key_id = origin.key_id
                     child = await self.admission.reserve(
                         session,
                         identity=AdmissionIdentity(
-                            owner_id=parent.owner_id, billing_owner_id=parent.billing_owner_id or parent.owner_id
+                            owner_id=parent.owner_id,
+                            billing_owner_id=parent.billing_owner_id or parent.owner_id,
+                            key_id=key_id,
                         ),
                         resource_type='agent_summary',
                         resource_id=parent.id,
@@ -377,7 +421,12 @@ class AssistantAgentService:
                             execution_deadline=request.execution_deadline,
                         ),
                     )
-                    await self.agents.attach_summary(session, parent, child.id)
+                    await self.agents.attach_summary(
+                        session,
+                        parent,
+                        child.id,
+                        conversation_id=frozen.execution.api_conversation_id or parent.resource_id,
+                    )
                     child_id = child.id
 
             async def wait_result() -> RunSnapshot:

@@ -28,11 +28,13 @@ export interface DeveloperKey {
   applicationId: string
   scopes: string[]
   agentIds: string[]
+  mcpToolIds?: string[]
   resourceGrants: KeyResourceGrant[]
   createResourceKinds: ResourceKind[]
   resourceRpmLimit: number
   maskedKey: string
   status: 'active' | 'retiring' | 'revoked' | 'expired'
+  canRotate?: boolean
   grants: { modelId: string }[]
   quota: { rpmLimit: number | null; tpmLimit: number | null; concurrencyLimit: number | null }
   monthlyPointsLimit: string | null
@@ -65,6 +67,7 @@ export interface KeyInput {
   name: string
   scopes: string[]
   agent_ids: string[]
+  mcp_tool_ids?: string[]
   resource_grants: KeyResourceGrant[]
   create_resource_kinds: ResourceKind[]
   resource_rpm_limit?: number
@@ -111,6 +114,8 @@ export function parseKey(value: unknown): DeveloperKey {
     maskedKey: string(data.prefix),
     scopes: list(string)(data.scopes),
     agentIds: list(string)(data.agent_ids),
+    ...(data.can_rotate === undefined ? {} : { canRotate: boolean(data.can_rotate) }),
+    mcpToolIds: data.mcp_tool_ids === undefined ? [] : list(string)(data.mcp_tool_ids),
     resourceGrants: list((value): KeyResourceGrant => {
       const grant = object(value)
       return {
@@ -346,7 +351,8 @@ export function keySelectionError(
   catalog: ScopeCatalog,
   agents: string[] = [],
   grants: KeyResourceGrant[] = [],
-  createKinds: ResourceKind[] = []
+  createKinds: ResourceKind[] = [],
+  mcpToolIds: string[] = []
 ): string {
   if (
     !scopes.length ||
@@ -358,6 +364,7 @@ export function keySelectionError(
     return '所选操作能力的签发权限已变化，请重新选择'
   if (scopes.includes('models:invoke') && !models.length) return '请选择可直接调用的模型'
   if (scopes.includes('agents:invoke') && !agents.length) return '请选择可调用的智能体'
+  if (scopes.includes('mcp:invoke') && !mcpToolIds.length) return '请选择可调用的 MCP 工具'
   if (
     catalog.createResourceKinds &&
     createKinds.some((kind) => !catalog.createResourceKinds?.includes(kind))

@@ -85,7 +85,7 @@ COMPOSE_PROFILES=workspace ./deploy.sh up
 
 部署还需为使用者单独授予“工作空间 → 文件处理与代码执行”。升级包含 `0041_work_agent` 迁移与官方 `work_checkpoints`；旧成员任务保留历史只读，新任务使用目标、模型、技能和文件执行流程。配置、隔离条件、限额与清理规则见[工作空间执行环境](deployment/workspace-sandbox.md)，接口见[工作空间任务 Agent](api/workspace-agent.md)。
 
-当前迁移头为 `0049_settings_permissions`。迁移将系统参数角色授权拆成「知识库默认配置」和「公告展示设置」，保留模块开关和对应操作，并清理未接入业务的存储文件解析权限。升级前备份数据库，待任务结束后停止 API 和 Worker，执行迁移，再以同一版本启动服务。回退到合并授权的旧版本时需要经过核对的角色权限备份。
+`0049_settings_permissions` 将系统参数角色授权拆成「知识库默认配置」和「公告展示设置」，保留模块开关和对应操作，并清理未接入业务的存储文件解析权限。升级前备份数据库，待任务结束后停止 API 和 Worker，执行迁移，再以同一版本启动服务。回退到合并授权的旧版本时需要经过核对的角色权限备份。
 
 `0048_admin_skill_library` 将预制技能迁入有效超级管理员 `admin` 的个人库，停用其他账号的预制副本并保留历史记录和修订包。引用已停用副本的助手需调整技能配置。已有平台技能发布数据时，`0047_platform_skills` 会拒绝原地降级。
 
@@ -99,9 +99,36 @@ COMPOSE_PROFILES=workspace ./deploy.sh up
 
 新增 MCP 服务前，在部署环境的 `CORE_MCP_ALLOWED_ENDPOINTS` JSON 数组中添加 API 和 Worker 均可访问的完整 Streamable HTTP 地址，例如 `["https://tools.example.com/mcp"]`。裸进程使用 `ZHIHENG_MCP_ALLOWED_ENDPOINTS`。需要携带凭据时使用受信任的 HTTPS 服务，Bearer Token 在页面单独填写。
 
-在「资源 → MCP → 服务管理」配置连接、同步工具、授予角色及查看调用记录。连接配置、工具授权和调用审计分别授权，旧服务管理权限会迁移至这三项。使用工具还需「MCP → 使用已授权工具」、相应的工作空间使用权限和具体工具的角色授权。在工作空间消息栏点击「MCP」，选择本轮工具并填写 JSON 参数。工具服务只接收本轮用户确认的参数，返回的文本或 JSON 可用于工作空间回答。
+在「资源 → MCP → 服务管理」配置连接、同步工具、授予角色及查看调用记录。连接配置、工具授权和调用审计分别授权，旧服务管理权限会迁移至这三项。外部客户端通过开发接入的应用与 Key 使用发布到该应用的工具。
 
 配置变更后，请重新选择工具。服务端工具定义发生变化时，管理员须同步并重新授权。只读声明由 MCP 服务提供，应仅接入受信任的服务，并给其共享凭据配置只读权限。
+
+### MCP 对外出口
+
+同步更新 API、Worker 和前端并迁移至 `0052_mcp_gateway` 后，在「开发接入 → 应用 → MCP 工具」选择本应用要发布的上游工具。发布需要「MCP → 向开发应用发布工具」与「开发接入 → 配置权限」。确认上游操作只读后发布，并在「访问密钥」签发具备「MCP 工具调用」能力且选定具体发布记录的 Key。上游服务继续在「资源 → MCP」维护。
+
+外部客户端配置部署地址的 `/v1/mcp` 路径，使用 Streamable HTTP，并发送 `Authorization: Bearer <平台签发的 Key>`。公网实例使用 HTTPS。服务提供 MCP 握手、工具发现和调用，工具在各自的上游服务执行。
+
+上游明确返回 `readOnlyHint: false` 的工具禁止发布。未声明的工具可在发布时由授权人员审核确认。旧版本无法区分这两种情况，已有工具记录缺少声明状态时先重新同步，再发布。
+
+例如 LangChain 的 MCP 适配器可以使用以下连接配置：
+
+```python
+import os
+
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+client = MultiServerMCPClient({
+    "daip": {
+        "transport": "streamable_http",
+        "url": os.environ["DAIP_MCP_URL"],
+        "headers": {"Authorization": "Bearer " + os.environ["DAIP_MCP_KEY"]},
+    }
+})
+tools = await client.get_tools()
+```
+
+停用上游服务会暂停调用。撤回工具或重新同步上游工具后，原发布无法再调用。重新发布后，请为新的发布记录签发 Key。请求计入开发应用的资源请求频率限制，调用结果和耗时在 MCP 服务的调用记录中查看。
 
 ## 源码模式
 

@@ -137,19 +137,26 @@ def _describe_resource(operation: dict[str, Any]) -> None:
 
 def _describe_inference(operation: dict[str, Any], path: str) -> None:
     responses = operation['responses']
+    statuses = (400, 401, 403, 404, 409, 413, 422, 429, 500, 502, 503)
     if operation.get('x-streaming'):
         operation['description'] = (
             'stream=true 返回 SSE data 帧；正常结束为 data: [DONE]，流内失败为推理错误对象。客户端断开沿用原 Run 取消策略。'
         )
         responses['200'].setdefault('content', {})['text/event-stream'] = {'schema': {'type': 'string'}}
     if path.startswith('/v1/agents/') and path.endswith('/chat/completions'):
+        statuses += (504,)
         operation['description'] = (
-            operation.get('description', '') + '\n关联知识库时，必须提供 Idempotency-Key 或 client_request_id（UUID）。'
-            '202 是知识准备状态，按 polling_url 轮询；admitted 后以相同请求体、相同 UUID 重发本接口，获取最终响应。'
+            operation.get('description', '')
+            + '\n提交 user 和本轮 message，必须提供 Idempotency-Key 或 client_request_id（UUID）。'
+            '首轮省略 conversation_id，续聊使用响应中的 conversation_id 及相同的 user。'
+            '默认等待知识准备最多 30 秒，准备完成后在同一次请求中返回 JSON 或流式 SSE。'
+            '普通请求等待超时返回 HTTP 504，可使用原 UUID 重试。携带 Prefer: respond-async 时'
+            '可返回 202，按 polling_url 轮询。'
+            'admitted 后以相同请求体、相同 UUID 重发本接口，获取最终响应。'
             '轮询与续调沿用同一访问密钥；新问题生成新 UUID。知识准备失败时检查 error，避免换键重复调用。'
         )
     responses.pop('422', None)
-    for status in (400, 401, 403, 404, 409, 413, 422, 429, 500, 502, 503):
+    for status in statuses:
         if status == HTTPStatus.UNPROCESSABLE_ENTITY and '/agents/' not in path:
             continue
         responses[str(status)] = {

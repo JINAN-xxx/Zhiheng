@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { onActivated, onBeforeUnmount, ref, watch } from 'vue'
 import { Pagination as APagination } from 'ant-design-vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
@@ -9,6 +9,7 @@ import { listPublicRequestLogs } from '../api/index.ts'
 
 const props = defineProps<{ applicationId: string; canQuery: boolean }>()
 const scope = new RequestScope()
+let loadedAt = 0
 const rows = ref<Awaited<ReturnType<typeof listPublicRequestLogs>>['rows']>([])
 const total = ref(0),
   page = ref(1),
@@ -32,6 +33,7 @@ async function load(target = page.value): Promise<void> {
     rows.value = result.rows
     total.value = result.total
     page.value = target
+    loadedAt = Date.now()
   } catch (reason) {
     if (ticket.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
   } finally {
@@ -42,6 +44,7 @@ watch(
   () => [props.applicationId, props.canQuery],
   () => {
     scope.replace()
+    loadedAt = 0
     rows.value = []
     total.value = 0
     page.value = 1
@@ -50,6 +53,9 @@ watch(
   },
   { immediate: true }
 )
+onActivated(() => {
+  if (!loading.value && Date.now() - loadedAt >= 30_000) void load()
+})
 onBeforeUnmount(() => scope.dispose())
 </script>
 

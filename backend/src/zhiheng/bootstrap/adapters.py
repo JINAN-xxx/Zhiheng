@@ -147,6 +147,7 @@ def create_assistant_agent_factory(settings: Settings) -> AssistantAgentFactory:
                 keep_tokens=settings.keep_tokens,
                 summary_output_tokens=settings.summary_output_tokens,
                 input_budget=settings.input_budget,
+                reference_message_index=settings.reference_message_index,
                 summarizer=summarizer,
                 on_model_start=on_model_start,
             )

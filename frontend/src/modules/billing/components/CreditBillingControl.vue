@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { feedback } from '../../../shared/feedback.ts'
 import { createRequestId } from '../../../shared/requestId.ts'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue'
 import {
@@ -28,7 +29,6 @@ const canSwitch = computed(() => creditAccess(identity.value).switchMode)
 const state = ref<CreditState | null>(null),
   loading = ref(false),
   error = ref(''),
-  actionError = ref(''),
   open = ref(false),
   saving = ref(false),
   formError = ref('')
@@ -53,7 +53,6 @@ watch(identity, () => {
   form.enabled = false
   form.reason = ''
   formError.value = ''
-  actionError.value = ''
   retryBody = null
   retrySignature = ''
   state.value = null
@@ -87,7 +86,6 @@ async function edit(): Promise<void> {
   if (!ownerId) return
   const ticket = authorization.replace()
   editing.value = true
-  actionError.value = ''
   try {
     const allowed = await confirmCreditAccess('switchMode', ownerId)
     if (!ticket.isCurrent() || !allowed || !state.value) return
@@ -99,7 +97,7 @@ async function edit(): Promise<void> {
     retrySignature = ''
     open.value = true
   } catch (reason) {
-    if (ticket.isCurrent() && !isAborted(reason)) actionError.value = errorMessage(reason)
+    if (ticket.isCurrent() && !isAborted(reason)) feedback.error(errorMessage(reason))
   } finally {
     if (ticket.isCurrent()) editing.value = false
   }
@@ -158,7 +156,6 @@ defineExpose({ refresh })
 </script>
 <template>
   <div class="credit-billing-control" aria-label="积分计费管理">
-    <AAlert v-if="actionError" :message="actionError" type="error" show-icon />
     <ATag v-if="state && !error" :color="state.enabled ? 'success' : 'default'">
       {{ state.enabled ? '积分计费已启用' : '积分计费已停用' }}
     </ATag>

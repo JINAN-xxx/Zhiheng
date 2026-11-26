@@ -7,9 +7,9 @@ import {
   FormItem as AFormItem,
   InputNumber as AInputNumber,
   Select as ASelect,
-  Spin as ASpin,
-  message
+  Spin as ASpin
 } from 'ant-design-vue'
+import { feedback as message } from '../../../shared/feedback.ts'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import WorkspacePanel from '../../../shared/components/WorkspacePanel.vue'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'

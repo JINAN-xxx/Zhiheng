@@ -366,19 +366,18 @@ async def test_queued_public_call_rechecks_activation_and_preserves_original_key
 ) -> None:
     from tests.core.integration.test_agents import issue_agent_key
     from tests.core.integration.test_public_protocol import provision
-    from zhiheng.modules.agents.public import PreviewRequest
+    from zhiheng.modules.agents.public import AgentPublicRequest
     from zhiheng.modules.billing.orm import Invocation
 
     application, _ = await provision(admin, model_id)
     agent = await assistant(admin, model_id, application_id=application)
     key = await issue_agent_key(admin, agent)
-    async with app.state.container.database.sessions.begin() as session:
-        queued, _, _ = await app.state.container.agent_runs.public(
-            session,
-            key['api_key'],
-            UUID(agent['id']),
-            PreviewRequest(messages=[{'role': 'user', 'content': 'QUEUED API'}], client_request_id=uuid4()),
-        )
+    queued, _, _ = await app.state.container.agent_runs.submit_public(
+        key['api_key'],
+        UUID(agent['id']),
+        AgentPublicRequest(user='test-user', message='QUEUED API'),
+        uuid4(),
+    )
     disabled = await admin.post(f'/api/agents/{agent["id"]}/disable', json={'expected_version': agent['version']})
     assert disabled.status_code == 200, disabled.text
     await execute(app, str(queued.id))

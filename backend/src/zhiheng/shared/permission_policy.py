@@ -24,7 +24,7 @@ MODULE_DEFINITIONS = (
         ),
     ),
     ('platform', 'work', '工作空间', ('read', 'use', 'create', 'update', 'delete', 'execute_code')),
-    ('platform', 'mcp', 'MCP', ('read', 'use', 'configure', 'grant', 'audit')),
+    ('platform', 'mcp', 'MCP', ('read', 'use', 'configure', 'grant', 'audit', 'publish')),
     ('platform', 'models', '模型目录', ('read', 'config_read', 'create', 'update', 'delete', 'toggle', 'test')),
     ('platform', 'knowledge', '知识库', ('read', 'query', 'create', 'update', 'delete', 'import', 'rebuild', 'share')),
     ('platform', 'knowledge_settings', '知识库默认配置', ('read', 'update')),
@@ -112,6 +112,7 @@ OPERATION_LABELS = {
     'platform:mcp:use': '使用已授权工具',
     'platform:mcp:configure': '配置服务连接与同步工具',
     'platform:mcp:grant': '启停工具与管理角色授权',
+    'platform:mcp:publish': '向开发应用发布工具',
     'platform:usage:read': '查看本人用量',
     'ai:credits:read': '查看全平台用户积分',
 }

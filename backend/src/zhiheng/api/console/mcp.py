@@ -24,6 +24,33 @@ class RoleOption(BaseModel):
     name: str
 
 
+class PublicationSource(BaseModel):
+    server_id: UUID
+    server_name: str
+    version: int
+    name: str
+    read_only: bool
+
+
+@router.get('/publication-sources')
+async def publication_sources(
+    container: ContainerDependency, session: SessionDependency, principal: PrincipalDependency
+) -> list[PublicationSource]:
+    return [
+        PublicationSource(
+            server_id=server.id,
+            server_name=server.name,
+            version=server.version,
+            name=tool.name,
+            read_only=tool.read_only,
+        )
+        for server in await container.mcp.servers(session, principal)
+        if server.enabled
+        for tool in server.tools
+        if tool.can_publish
+    ]
+
+
 @router.get('/tools')
 async def catalog(
     container: ContainerDependency, session: SessionDependency, principal: PrincipalDependency

@@ -52,9 +52,11 @@ class KeyService:
         identity: IdentityService,
         facts: UsageFactsPort,
         agent_candidates: Callable[[AsyncSession, UUID, UUID], Awaitable[builtins.list[tuple[UUID, str]]]],
+        mcp_candidates: Callable[[AsyncSession, UUID], Awaitable[set[UUID]]],
     ) -> None:
         self._applications, self._models, self._identity, self._facts = applications, models, identity, facts
         self._agent_candidates = agent_candidates
+        self._mcp_candidates = mcp_candidates
 
     async def create(
         self, session: AsyncSession, principal: Principal, application_id: UUID, body: KeyCreate
@@ -84,30 +86,36 @@ class KeyService:
             candidates = await self._agent_candidates(session, principal.id, application_id)
             if not set(body.agent_ids).issubset(agent_id for agent_id, _ in candidates):
                 raise AppError('agent_not_found', '请选择此应用已启用的智能体', 404)
+        if body.mcp_tool_ids and not set(body.mcp_tool_ids).issubset(
+            await self._mcp_candidates(session, application_id)
+        ):
+            raise AppError('mcp_publication_unavailable', '请选择此应用已发布且可用的 MCP 工具', 404)
         for selection in body.resource_grants:
             grant = await session.get(ResourceGrant, (application_id, selection.kind, selection.resource_id))
             if grant is None or not set(selection.actions).issubset(grant.actions):
                 raise AppError('invalid_resource_grant', '所选资源或动作超出应用授权范围', 422)
-        object_fields = {'agent_ids', 'model_ids', 'resource_grants', 'create_resource_kinds', 'scopes'}
+        object_fields = {'agent_ids', 'model_ids', 'mcp_tool_ids', 'resource_grants', 'create_resource_kinds', 'scopes'}
         row = DeveloperKey(
             application_id=application_id,
             **body.model_dump(exclude=object_fields),
             **body.model_dump(mode='json', include=object_fields),
         )
-        return await self._issue(session, row)
+        return await self._issue(session, row, principal, app)
 
-    async def _issue(self, session: AsyncSession, row: DeveloperKey) -> IssuedKey:
+    async def _issue(
+        self, session: AsyncSession, row: DeveloperKey, principal: Principal, app: DeveloperApplication
+    ) -> IssuedKey:
         secret = 'sk-zh-' + secrets.token_urlsafe(32)
         row.prefix = secret[:18]
         row.digest = hashlib.sha256(secret.encode()).hexdigest()
         session.add(row)
         await session.flush()
-        return IssuedKey(**self.info(row).model_dump(), api_key=secret)
+        return IssuedKey(**self.owner_info(row, principal, app).model_dump(), api_key=secret)
 
     async def list(
         self, session: AsyncSession, principal: Principal, application_id: UUID, page: int, page_size: int
     ) -> dict[str, object]:
-        await self._applications.require(session, principal, application_id)
+        app = await self._applications.require(session, principal, application_id)
         query = select(DeveloperKey).where(
             DeveloperKey.application_id == application_id, DeveloperKey.deleted_at.is_(None)
         )
@@ -117,7 +125,12 @@ class KeyService:
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
-        return {'items': [self.info(row) for row in rows], 'total': total or 0, 'page': page, 'page_size': page_size}
+        return {
+            'items': [self.owner_info(row, principal, app) for row in rows],
+            'total': total or 0,
+            'page': page,
+            'page_size': page_size,
+        }
 
     async def require(
         self,
@@ -144,14 +157,9 @@ class KeyService:
     ) -> IssuedKey:
         row = await self.require(session, principal, application_id, key_id, lock=True)
         app = await session.get(DeveloperApplication, application_id)
-        if (
-            row.status != 'active'
-            or not self.usable(row)
-            or app is None
-            or (app.status != 'active' or not app.platform_enabled)
-        ):
+        if app is None:
             raise AppError('key_conflict', '密钥不可轮换', 409)
-        require_key_capabilities(principal, tuple(row.scopes), operation='key_rotate')
+        self._require_rotation(row, principal, app)
         row.status = 'revoked' if grace == 0 else 'retiring'
         row.retire_at = utcnow() + timedelta(seconds=grace) if grace > 0 else None
         replacement = DeveloperKey(
@@ -159,7 +167,18 @@ class KeyService:
             grant_family_id=row.grant_family_id or row.id,
             **{field: getattr(row, field) for field in KeyCreate.model_fields if field != 'issue_request_id'},
         )
-        return await self._issue(session, replacement)
+        return await self._issue(session, replacement, principal, app)
+
+    @classmethod
+    def _require_rotation(cls, row: DeveloperKey, principal: Principal, app: DeveloperApplication) -> None:
+        if row.status != 'active' or not cls.usable(row) or app.status != 'active' or not app.platform_enabled:
+            raise AppError('key_conflict', '密钥不可轮换', 409)
+        require_key_capabilities(principal, tuple(row.scopes), operation='key_rotate')
+
+    async def detail(self, session: AsyncSession, principal: Principal, application_id: UUID, key_id: UUID) -> KeyInfo:
+        row = await self.require(session, principal, application_id, key_id)
+        app = await session.get_one(DeveloperApplication, application_id)
+        return self.owner_info(row, principal, app)
 
     async def revoke(self, session: AsyncSession, principal: Principal, application_id: UUID, key_id: UUID) -> KeyInfo:
         require_capability(principal, 'developer', 'key_revoke')
@@ -415,8 +434,17 @@ class KeyService:
         )
 
     @classmethod
-    def info(cls, row: DeveloperKey) -> KeyInfo:
+    def owner_info(cls, row: DeveloperKey, principal: Principal, app: DeveloperApplication) -> KeyInfo:
+        try:
+            cls._require_rotation(row, principal, app)
+        except AppError:
+            return cls.info(row)
+        return cls.info(row, can_rotate=True)
+
+    @classmethod
+    def info(cls, row: DeveloperKey, *, can_rotate: bool = False) -> KeyInfo:
         status = row.status
         if status != 'revoked' and not cls.usable(row):
             status = 'expired'
-        return KeyInfo.model_validate({**{name: getattr(row, name) for name in KeyInfo.model_fields}, 'status': status})
+        result = {name: getattr(row, name) for name in KeyInfo.model_fields if name != 'can_rotate'}
+        return KeyInfo.model_validate({**result, 'status': status, 'can_rotate': can_rotate})

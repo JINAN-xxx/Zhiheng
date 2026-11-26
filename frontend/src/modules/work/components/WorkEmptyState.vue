@@ -16,7 +16,6 @@ import type { WorkOptions } from '../api/index.ts'
 import { canUseCapability } from '../../identity/public.ts'
 import { SkillPicker } from '../../skills/public.ts'
 import WorkSelectedSkills from './WorkSelectedSkills.vue'
-import WorkMcpPicker from './WorkMcpPicker.vue'
 
 const props = defineProps<{
   canCreate: boolean
@@ -184,12 +183,6 @@ function selectModel(value: unknown): void {
         />
       </template>
       <template #tools>
-        <WorkMcpPicker
-          v-if="canUseCapability('mcp', 'use')"
-          :selection="draft.mcpTool"
-          :disabled="blocked"
-          @change="(value) => (value ? (draft.mcpTool = value) : delete draft.mcpTool)"
-        />
         <AttachmentButton aria-label="添加附件" :disabled="!canAddFiles" @click="chooseFiles" />
         <AButton
           v-if="canUseSkills"
